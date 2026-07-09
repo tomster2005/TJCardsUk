@@ -1,26 +1,521 @@
 @import "tailwindcss";
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   COLLECTRA — THE VAULT
+   Premium collector platform for Football & Disney cards
+   ═══════════════════════════════════════════════════════════════════════════ */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* ── Vault Palette ─────────────────────────────────────────────────────── */
+  --vault-bg:        #0d0d0f;
+  --vault-surface:   #141418;
+  --vault-raised:    #1c1c22;
+  --vault-border:    rgba(255, 255, 255, 0.06);
+  --vault-border-hi: rgba(255, 255, 255, 0.12);
+
+  /* ── Gold System ───────────────────────────────────────────────────────── */
+  --gold-100: #fef9ec;
+  --gold-300: #f5d97a;
+  --gold-400: #e8c14a;
+  --gold-500: #c89b3c;
+  --gold-600: #a07828;
+  --gold-glow: rgba(200, 155, 60, 0.35);
+  --gold-glow-strong: rgba(200, 155, 60, 0.6);
+
+  /* ── Football — Emerald & Black ────────────────────────────────────────── */
+  --football-dark:   #0a1a0f;
+  --football-mid:    #0f2d1a;
+  --football-green:  #16a34a;
+  --football-bright: #22c55e;
+  --football-glow:   rgba(22, 163, 74, 0.4);
+
+  /* ── Disney — Midnight Blue & Magic ───────────────────────────────────── */
+  --disney-dark:     #06091a;
+  --disney-mid:      #0d1535;
+  --disney-blue:     #3b5bdb;
+  --disney-bright:   #748ffc;
+  --disney-magic:    #cc5de8;
+  --disney-glow:     rgba(59, 91, 219, 0.4);
+
+  /* ── Semantic ──────────────────────────────────────────────────────────── */
+  --owned:    #22c55e;
+  --wishlist: #f97316;
+  --rare:     #a855f7;
+  --limited:  #ef4444;
+  --market:   #3b82f6;
+
+  /* ── Shadows ───────────────────────────────────────────────────────────── */
+  --shadow-sm:    0 2px 8px rgba(0,0,0,0.3);
+  --shadow-md:    0 8px 32px rgba(0,0,0,0.4);
+  --shadow-lg:    0 20px 60px rgba(0,0,0,0.5);
+  --shadow-xl:    0 40px 100px rgba(0,0,0,0.6);
+  --shadow-gold:  0 8px 40px rgba(200,155,60,0.35);
+  --shadow-card:  0 4px 20px rgba(0,0,0,0.35), 0 1px 4px rgba(0,0,0,0.2);
+  --shadow-float: 0 24px 80px rgba(0,0,0,0.55), 0 4px 16px rgba(0,0,0,0.3);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/* ─── Reset ──────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+a { text-decoration: none; }
+html { scroll-behavior: smooth; }
+
+/* ─── Vault Body ─────────────────────────────────────────────────────────── */
+body {
+  margin: 0;
+  min-height: 100vh;
+  background-color: #0d0d0f;
+  background-image:
+    radial-gradient(ellipse 100% 60% at 50% -20%, rgba(200,155,60,0.07), transparent),
+    radial-gradient(ellipse 60% 40% at 0% 50%, rgba(22,163,74,0.04), transparent),
+    radial-gradient(ellipse 60% 40% at 100% 80%, rgba(59,91,219,0.04), transparent);
+  color: #e8e6e1;
+  font-family: var(--font-geist-sans), "SF Pro Display", "Segoe UI", sans-serif;
+  letter-spacing: 0.01em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* ─── Keyframes ──────────────────────────────────────────────────────────── */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.92) translateY(8px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(32px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes float-card {
+  0%, 100% { transform: translateY(0px) rotate(-1deg); }
+  33%       { transform: translateY(-12px) rotate(0.5deg); }
+  66%       { transform: translateY(-6px) rotate(-1.5deg); }
+}
+@keyframes float-slow {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-8px); }
+}
+@keyframes vault-pulse {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50%       { opacity: 0.7; transform: scale(1.05); }
+}
+@keyframes gold-shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+@keyframes foil-sweep {
+  0%   { background-position: -300% center; opacity: 0; }
+  20%  { opacity: 1; }
+  80%  { opacity: 1; }
+  100% { background-position: 300% center; opacity: 0; }
+}
+@keyframes rare-breathe {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(168,85,247,0.2), 0 0 60px rgba(168,85,247,0.08);
+  }
+  50% {
+    box-shadow: 0 0 40px rgba(168,85,247,0.45), 0 0 100px rgba(168,85,247,0.18), 0 0 160px rgba(59,130,246,0.08);
   }
 }
+@keyframes legendary-breathe {
+  0%, 100% {
+    box-shadow: 0 0 30px rgba(200,155,60,0.3), 0 0 80px rgba(200,155,60,0.1);
+  }
+  50% {
+    box-shadow: 0 0 60px rgba(200,155,60,0.6), 0 0 120px rgba(200,155,60,0.25), 0 0 200px rgba(245,217,122,0.1);
+  }
+}
+@keyframes progress-fill {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+@keyframes count-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes cart-bounce {
+  0%   { transform: scale(1) rotate(0deg); }
+  30%  { transform: scale(1.35) rotate(-10deg); }
+  60%  { transform: scale(0.9) rotate(5deg); }
+  100% { transform: scale(1) rotate(0deg); }
+}
+@keyframes shimmer-pass {
+  to { transform: translateX(100%); }
+}
+@keyframes nav-drop {
+  from { opacity: 0; transform: translateY(-10px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes ring-spin {
+  from { stroke-dashoffset: 283; }
+}
+@keyframes particle-drift {
+  0%   { transform: translateY(0) translateX(0) scale(1); opacity: 0.6; }
+  100% { transform: translateY(-120px) translateX(20px) scale(0); opacity: 0; }
+}
+@keyframes gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50%       { background-position: 100% 50%; }
+}
+@keyframes page-enter {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes collector-fade-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes collector-float {
+  0%, 100% { transform: translateY(0) rotate(-2deg); }
+  50%       { transform: translateY(-8px) rotate(-1deg); }
+}
+@keyframes soft-pulse {
+  0%, 100% { box-shadow: 0 0 0 rgba(200,155,60,0); }
+  50%       { box-shadow: 0 0 28px rgba(200,155,60,0.4); }
+}
+@keyframes added-chip {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.06) translateY(-2px); }
+  100% { transform: scale(1); }
+}
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* ─── Animation Utilities ────────────────────────────────────────────────── */
+.animate-fade-up           { animation: fade-up 600ms cubic-bezier(0.22,1,0.36,1) both; }
+.animate-fade-in           { animation: fade-in 400ms ease both; }
+.animate-scale-in          { animation: scale-in 500ms cubic-bezier(0.22,1,0.36,1) both; }
+.animate-slide-up          { animation: slide-up 700ms cubic-bezier(0.22,1,0.36,1) both; }
+.animate-float-card        { animation: float-card 6s ease-in-out infinite; }
+.animate-float-slow        { animation: float-slow 4s ease-in-out infinite; }
+.animate-vault-pulse       { animation: vault-pulse 3s ease-in-out infinite; }
+.animate-rare-breathe      { animation: rare-breathe 3s ease-in-out infinite; }
+.animate-legendary-breathe { animation: legendary-breathe 2.5s ease-in-out infinite; }
+.animate-count-up          { animation: count-up 600ms cubic-bezier(0.22,1,0.36,1) both; }
+.animate-cart-bounce       { animation: cart-bounce 500ms cubic-bezier(0.22,1,0.36,1); }
+.animate-nav-drop          { animation: nav-drop 280ms cubic-bezier(0.22,1,0.36,1) both; }
+.animate-gradient-shift    { animation: gradient-shift 6s ease infinite; background-size: 200% 200%; }
+.animate-page-enter        { animation: page-enter 480ms cubic-bezier(0.22,1,0.36,1); }
+.animate-collector-fade-up { animation: collector-fade-up 620ms cubic-bezier(0.22,1,0.36,1); }
+.animate-collector-float   { animation: collector-float 4.8s ease-in-out infinite; }
+.animate-soft-pulse        { animation: soft-pulse 3s ease-in-out infinite; }
+.animate-added-chip        { animation: added-chip 320ms ease-out; }
+.animate-cart-bump         { animation: cart-bounce 500ms cubic-bezier(0.22,1,0.36,1); }
+.animate-progress-grow     { transform-origin: left; animation: progress-fill 900ms cubic-bezier(0.22,1,0.36,1) both; }
+
+/* ─── Stagger ────────────────────────────────────────────────────────────── */
+.stagger > * { animation: fade-up 600ms cubic-bezier(0.22,1,0.36,1) both; }
+.stagger > *:nth-child(1)  { animation-delay: 0ms; }
+.stagger > *:nth-child(2)  { animation-delay: 60ms; }
+.stagger > *:nth-child(3)  { animation-delay: 120ms; }
+.stagger > *:nth-child(4)  { animation-delay: 180ms; }
+.stagger > *:nth-child(5)  { animation-delay: 240ms; }
+.stagger > *:nth-child(6)  { animation-delay: 300ms; }
+.stagger > *:nth-child(7)  { animation-delay: 360ms; }
+.stagger > *:nth-child(8)  { animation-delay: 420ms; }
+.stagger-grid > * { animation: fade-up 520ms cubic-bezier(0.22,1,0.36,1) both; }
+.stagger-grid > *:nth-child(1) { animation-delay: 0ms; }
+.stagger-grid > *:nth-child(2) { animation-delay: 50ms; }
+.stagger-grid > *:nth-child(3) { animation-delay: 100ms; }
+.stagger-grid > *:nth-child(4) { animation-delay: 150ms; }
+.stagger-grid > *:nth-child(5) { animation-delay: 200ms; }
+.stagger-grid > *:nth-child(6) { animation-delay: 250ms; }
+
+/* ─── Card System ────────────────────────────────────────────────────────── */
+
+/* Base card lift */
+.card-lift {
+  transition: transform 280ms cubic-bezier(0.22,1,0.36,1), box-shadow 300ms ease;
+}
+.card-lift:hover {
+  transform: translateY(-6px) scale(1.012);
+  box-shadow: var(--shadow-float);
+}
+
+/* Foil shimmer on hover */
+.card-foil {
+  position: relative;
+  overflow: hidden;
+}
+.card-foil::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    115deg,
+    transparent 0%,
+    transparent 25%,
+    rgba(255,255,255,0.04) 35%,
+    rgba(200,155,60,0.12) 45%,
+    rgba(168,85,247,0.08) 55%,
+    rgba(59,130,246,0.08) 65%,
+    rgba(255,255,255,0.04) 75%,
+    transparent 85%,
+    transparent 100%
+  );
+  background-size: 300% 100%;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 2;
+  transition: opacity 400ms ease;
+}
+.card-foil:hover::after {
+  opacity: 1;
+  animation: foil-sweep 1.6s ease-in-out infinite;
+}
+
+/* Rare card */
+.card-rare {
+  animation: rare-breathe 3s ease-in-out infinite;
+}
+
+/* Legendary card */
+.card-legendary {
+  animation: legendary-breathe 2.5s ease-in-out infinite;
+}
+
+/* ─── Glass Surfaces ─────────────────────────────────────────────────────── */
+.glass {
+  background: rgba(255,255,255,0.04);
+  backdrop-filter: blur(24px) saturate(150%);
+  -webkit-backdrop-filter: blur(24px) saturate(150%);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+.glass-gold {
+  background: rgba(200,155,60,0.06);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(200,155,60,0.2);
+}
+.glass-light {
+  background: rgba(255,255,255,0.88);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  border: 1px solid rgba(255,255,255,0.6);
+}
+
+/* ─── Vault Surface ──────────────────────────────────────────────────────── */
+.vault-surface {
+  background: var(--vault-surface);
+  border: 1px solid var(--vault-border);
+}
+.vault-raised {
+  background: var(--vault-raised);
+  border: 1px solid var(--vault-border-hi);
+}
+
+/* ─── Gold Text ──────────────────────────────────────────────────────────── */
+.text-gold {
+  background: linear-gradient(135deg, var(--gold-300), var(--gold-500), var(--gold-300));
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: gold-shimmer 4s linear infinite;
+}
+.text-gold-static {
+  color: var(--gold-400);
+}
+
+/* ─── Gold Button ────────────────────────────────────────────────────────── */
+.btn-gold {
+  background: linear-gradient(135deg, var(--gold-400), var(--gold-500), var(--gold-400));
+  background-size: 200% auto;
+  color: #0d0d0f;
+  font-weight: 700;
+  border: none;
+  box-shadow: 0 4px 20px var(--gold-glow);
+  transition: all 280ms cubic-bezier(0.22,1,0.36,1);
+  animation: gold-shimmer 4s linear infinite;
+}
+.btn-gold:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 32px var(--gold-glow-strong);
+}
+
+/* ─── Football Theme ─────────────────────────────────────────────────────── */
+.theme-football {
+  background: linear-gradient(135deg, var(--football-dark), var(--football-mid));
+  border: 1px solid rgba(22,163,74,0.2);
+}
+.theme-football-glow {
+  box-shadow: 0 0 40px var(--football-glow), 0 0 80px rgba(22,163,74,0.1);
+}
+
+/* ─── Disney Theme ───────────────────────────────────────────────────────── */
+.theme-disney {
+  background: linear-gradient(135deg, var(--disney-dark), var(--disney-mid));
+  border: 1px solid rgba(59,91,219,0.2);
+}
+.theme-disney-glow {
+  box-shadow: 0 0 40px var(--disney-glow), 0 0 80px rgba(204,93,232,0.1);
+}
+
+/* ─── Scroll Row ─────────────────────────────────────────────────────────── */
+.scroll-row {
+  display: flex;
+  gap: 1rem;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  padding-bottom: 0.5rem;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scroll-row::-webkit-scrollbar { display: none; }
+.scroll-row > * { scroll-snap-align: start; flex-shrink: 0; }
+
+/* ─── Progress Bar ───────────────────────────────────────────────────────── */
+.progress-track {
+  background: rgba(255,255,255,0.06);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--gold-500), var(--gold-300), var(--gold-500));
+  background-size: 200% 100%;
+  transform-origin: left;
+  animation: progress-fill 1s cubic-bezier(0.22,1,0.36,1) both, gold-shimmer 3s linear infinite;
+}
+.progress-fill-football {
+  background: linear-gradient(90deg, var(--football-green), var(--football-bright), var(--football-green));
+  background-size: 200% 100%;
+  animation: progress-fill 1s cubic-bezier(0.22,1,0.36,1) both, gold-shimmer 3s linear infinite;
+}
+.progress-fill-disney {
+  background: linear-gradient(90deg, var(--disney-blue), var(--disney-magic), var(--disney-blue));
+  background-size: 200% 100%;
+  animation: progress-fill 1s cubic-bezier(0.22,1,0.36,1) both, gold-shimmer 3s linear infinite;
+}
+
+/* ─── Skeleton ───────────────────────────────────────────────────────────── */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: rgba(255,255,255,0.04);
+}
+.skeleton::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 20%, rgba(255,255,255,0.06) 50%, transparent 80%);
+  transform: translateX(-100%);
+  animation: shimmer-pass 1600ms infinite;
+}
+.skeleton-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+.skeleton-shimmer::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 20%, rgba(255,255,255,0.06) 50%, transparent 80%);
+  transform: translateX(-100%);
+  animation: shimmer-pass 1600ms infinite;
+}
+
+/* ─── Badges ─────────────────────────────────────────────────────────────── */
+.badge-owned    { background: rgba(34,197,94,0.12);  color: #4ade80; border: 1px solid rgba(34,197,94,0.25); }
+.badge-wishlist { background: rgba(249,115,22,0.12); color: #fb923c; border: 1px solid rgba(249,115,22,0.25); }
+.badge-rare     { background: rgba(168,85,247,0.12); color: #c084fc; border: 1px solid rgba(168,85,247,0.25); }
+.badge-market   { background: rgba(59,130,246,0.12); color: #60a5fa; border: 1px solid rgba(59,130,246,0.25); }
+.badge-limited  { background: rgba(239,68,68,0.12);  color: #f87171; border: 1px solid rgba(239,68,68,0.25); }
+.badge-gold     { background: rgba(200,155,60,0.12); color: var(--gold-300); border: 1px solid rgba(200,155,60,0.3); }
+.badge-football { background: rgba(22,163,74,0.12);  color: #4ade80; border: 1px solid rgba(22,163,74,0.25); }
+.badge-disney   { background: rgba(59,91,219,0.12);  color: #748ffc; border: 1px solid rgba(59,91,219,0.25); }
+
+/* ─── Nav ────────────────────────────────────────────────────────────────── */
+.nav-link { position: relative; }
+.nav-link::after {
+  content: "";
+  position: absolute;
+  left: 20%; right: 20%; bottom: 2px;
+  height: 1.5px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, var(--gold-400), transparent);
+  transform: scaleX(0);
+  transform-origin: center;
+  transition: transform 280ms cubic-bezier(0.22,1,0.36,1);
+}
+.nav-link:hover::after,
+.nav-link.is-active::after { transform: scaleX(1); }
+
+/* ─── Binder ─────────────────────────────────────────────────────────────── */
+.binder-cover {
+  background: linear-gradient(145deg, #1a0e06 0%, #2d1a0a 20%, #3d2410 50%, #2a1808 80%, #150c04 100%);
+  box-shadow: 0 40px 100px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.04), inset 0 -1px 0 rgba(0,0,0,0.5);
+}
+.binder-spine {
+  background: linear-gradient(180deg, #0f0804 0%, #1a0e06 30%, #2d1a0a 50%, #1a0e06 70%, #0f0804 100%);
+  box-shadow: inset -2px 0 8px rgba(0,0,0,0.5);
+}
+.binder-page {
+  background: linear-gradient(160deg, #fefcf8 0%, #f8f4ec 60%, #f2ede3 100%);
+  box-shadow: inset 0 0 0 1px rgba(148,163,184,0.15);
+}
+.pocket-empty {
+  background: linear-gradient(135deg, rgba(248,244,236,0.6), rgba(240,235,224,0.4));
+  border: 1.5px dashed rgba(148,163,184,0.3);
+  transition: all 260ms ease;
+}
+.pocket-empty:hover {
+  border-color: rgba(200,155,60,0.5);
+  background: rgba(200,155,60,0.03);
+}
+.pocket-filled {
+  border: 1px solid rgba(148,163,184,0.2);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.15), 0 1px 4px rgba(0,0,0,0.1);
+  transition: all 280ms cubic-bezier(0.22,1,0.36,1);
+}
+.pocket-filled:hover {
+  transform: translateY(-4px) scale(1.04);
+  box-shadow: 0 16px 40px rgba(0,0,0,0.25), 0 4px 12px rgba(0,0,0,0.15);
+  z-index: 10;
+}
+
+/* ─── Section Divider ────────────────────────────────────────────────────── */
+.vault-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(200,155,60,0.2), rgba(255,255,255,0.06), transparent);
+}
+
+/* ─── Completion Ring SVG ────────────────────────────────────────────────── */
+.ring-track { fill: none; stroke: rgba(255,255,255,0.06); stroke-width: 8; }
+.ring-fill  {
+  fill: none;
+  stroke: var(--gold-400);
+  stroke-width: 8;
+  stroke-linecap: round;
+  transform: rotate(-90deg);
+  transform-origin: center;
+  transition: stroke-dashoffset 1400ms cubic-bezier(0.22,1,0.36,1);
+  filter: drop-shadow(0 0 6px rgba(200,155,60,0.6));
+}
+
+/* ─── Interactive ────────────────────────────────────────────────────────── */
+button, [role="button"], input, select, textarea {
+  transition: transform 180ms ease, box-shadow 220ms ease, border-color 220ms ease, background-color 220ms ease, opacity 180ms ease;
+}
+button:active, [role="button"]:active {
+  transform: translateY(1px) scale(0.98);
+}
+input:focus-visible, select:focus-visible, textarea:focus-visible,
+button:focus-visible, a:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(200,155,60,0.6), 0 0 0 5px rgba(200,155,60,0.15);
+}
+
+/* ─── Reduced Motion ─────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
