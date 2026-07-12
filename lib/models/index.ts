@@ -69,17 +69,6 @@ export interface Parallel {
 }
 
 /**
- * Rarity defines how scarce a card is and can be used for sorting/filtering.
- */
-export interface Rarity {
-  id: string;
-  label: string;
-  tier: number;
-  description: string;
-  color?: string;
-}
-
-/**
  * CardSet is the product-level collection of cards that belongs to a brand and season.
  */
 export interface CardSet {
@@ -108,7 +97,6 @@ export interface Card {
   season: string;
   brandId: string;
   productLine: string;
-  rarityId: string;
   parallelId: string;
   serialNumber?: string;
   autograph: boolean;

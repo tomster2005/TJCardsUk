@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 
 const topNavItems = [{ href: "/", label: "← View Public Site" }, { href: "/profile", label: "Profile" }];
@@ -21,6 +21,8 @@ const adminNavGroups = [
       { href: "/admin/cards/new", label: "Add Card" },
       { href: "/admin/bulk-upload", label: "Bulk Upload" },
       { href: "/admin/image-queue", label: "Image Queue" },
+      { href: "/admin/binders", label: "Binders" },
+      { href: "/admin/community-images", label: "Community Images" },
     ],
   },
   {
@@ -46,7 +48,7 @@ const adminNavGroups = [
 export function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { signOut, user, loading } = useAuth();
+  const { signOut, user, loading, isAdmin, profileLoading } = useAuth();
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
     overview: true,
     catalogue: true,
@@ -54,12 +56,31 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
     system: true,
   });
 
-  if (loading) {
-    return <div className="rounded-3xl border border-slate-300/60 bg-white/90 p-8 text-zinc-600">Checking auth…</div>;
+  const authReady = !loading && !profileLoading;
+
+  useEffect(() => {
+    if (!authReady) return;
+    if (!user) {
+      router.push("/login");
+    } else if (!isAdmin) {
+      router.push("/dashboard");
+    }
+  }, [authReady, user, isAdmin, router]);
+
+  // Show loading while auth + profile are resolving
+  if (!authReady) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#f8f6f2]">
+        <div className="text-center space-y-3">
+          <div className="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-amber-200 border-t-amber-500" />
+          <p className="text-sm text-zinc-500">Checking access…</p>
+        </div>
+      </div>
+    );
   }
 
-  if (!user) {
-    router.push("/login");
+  // Don't render admin content for non-admin users (redirect is in progress)
+  if (!user || !isAdmin) {
     return null;
   }
 

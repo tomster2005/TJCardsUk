@@ -1,12 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Layout } from "@/components/Layout";
 import { useCart } from "@/contexts/CartContext";
 
-export default function CheckoutSuccessPage() {
+function CheckoutSuccessContent() {
   const searchParams = useSearchParams();
   const { completeSale, isCompletingSale, saleError, saleSuccess } = useCart();
   const [status, setStatus] = useState<"checking" | "paid" | "pending" | "failed">("checking");
@@ -79,33 +79,41 @@ export default function CheckoutSuccessPage() {
   }, [checkoutId, completeSale, saleError]);
 
   return (
+    <section className="mx-auto max-w-3xl rounded-[2rem] border border-[rgba(200,155,60,0.2)] bg-white p-10 shadow-[0_20px_48px_rgba(0,0,0,0.08)]">
+      <p className="text-xs uppercase tracking-[0.34em] text-[#92400e]">Checkout</p>
+      <h1 className="mt-2 text-4xl font-semibold text-zinc-900">SumUp payment result</h1>
+      <p className="mt-4 text-zinc-700">{message}</p>
+
+      {saleSuccess ? (
+        <p className="mt-4 rounded-xl border border-emerald-300/60 bg-emerald-50 p-3 text-sm text-emerald-800">{saleSuccess}</p>
+      ) : null}
+
+      {saleError ? (
+        <p className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{saleError}</p>
+      ) : null}
+
+      <div className="mt-6 flex flex-wrap gap-3">
+        <Link href="/catalogue" className="btn-gold rounded-full px-5 py-2.5 text-sm font-semibold">
+          Back to catalogue
+        </Link>
+        <Link href="/cart" className="rounded-full border border-[rgba(0,0,0,0.1)] bg-white px-5 py-2.5 text-sm font-semibold text-zinc-700 transition hover:bg-[rgba(0,0,0,0.03)]">
+          Return to cart
+        </Link>
+      </div>
+
+      {(status === "checking" || isCompletingSale) ? (
+        <p className="mt-4 text-sm text-zinc-500">Finalizing your order...</p>
+      ) : null}
+    </section>
+  );
+}
+
+export default function CheckoutSuccessPage() {
+  return (
     <Layout>
-      <section className="mx-auto max-w-3xl rounded-[2rem] border border-slate-300/55 bg-white/92 p-10 shadow-[0_20px_48px_rgba(15,23,42,0.09)]">
-        <p className="text-xs uppercase tracking-[0.34em] text-amber-700">Checkout</p>
-        <h1 className="mt-2 text-4xl font-semibold text-zinc-900">SumUp payment result</h1>
-        <p className="mt-4 text-zinc-700">{message}</p>
-
-        {saleSuccess ? (
-          <p className="mt-4 rounded-xl border border-emerald-300/60 bg-emerald-100/80 p-3 text-sm text-emerald-900">{saleSuccess}</p>
-        ) : null}
-
-        {saleError ? (
-          <p className="mt-4 rounded-xl border border-rose-300/60 bg-rose-100/80 p-3 text-sm text-rose-900">{saleError}</p>
-        ) : null}
-
-        <div className="mt-6 flex flex-wrap gap-3">
-          <Link href="/catalogue" className="rounded-full border border-amber-400/40 bg-amber-100/90 px-5 py-2.5 text-sm font-semibold text-amber-900">
-            Back to catalogue
-          </Link>
-          <Link href="/cart" className="rounded-full border border-slate-300/70 bg-white px-5 py-2.5 text-sm font-semibold text-zinc-800">
-            Return to cart
-          </Link>
-        </div>
-
-        {(status === "checking" || isCompletingSale) ? (
-          <p className="mt-4 text-sm text-zinc-500">Finalizing your order...</p>
-        ) : null}
-      </section>
+      <Suspense fallback={<div className="mx-auto max-w-3xl rounded-[2rem] border border-[rgba(0,0,0,0.08)] bg-white p-10 text-zinc-500">Loading...</div>}>
+        <CheckoutSuccessContent />
+      </Suspense>
     </Layout>
   );
 }

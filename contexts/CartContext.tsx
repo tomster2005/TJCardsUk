@@ -140,7 +140,6 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       setSaleError(null);
       setRecentlyAddedName(card.playerName);
       setAddEventCount((current) => current + 1);
-      setIsCartOpen(true);
     }
   }, []);
 

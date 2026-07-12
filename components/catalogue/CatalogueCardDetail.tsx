@@ -66,7 +66,7 @@ export function CatalogueCardDetail({ card, relatedCards = [] }: CatalogueCardDe
 
   const displayPrice = Number(card.price ?? 0);
   const displayMarketValue = Number(card.estimatedValue ?? 0);
-  const displayPrintRun = card.printRun ? String(card.printRun).startsWith("/") ? String(card.printRun) : `/${card.printRun}` : "Unknown";
+  const displayPrintRun = card.printRun ? String(card.printRun).startsWith("/") ? String(card.printRun) : `/${card.printRun}` : null;
   const hasBackImage = Boolean(card.backImageUrl);
   const cardLabel = `${displayValue(card.playerName, "Card")} #${displayValue(card.cardNumber, "?")}`;
   const setLabel = displayValue(card.setName, "Unknown set");
@@ -211,19 +211,18 @@ export function CatalogueCardDetail({ card, relatedCards = [] }: CatalogueCardDe
           <span className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.25em] ${getBadgeClass(card.stockStatus)}`}>
             {card.stockStatus}
           </span>
-          {card.isRare ? <span className="rounded-full border border-amber-400/35 bg-amber-100/90 px-3 py-1 text-xs font-semibold uppercase tracking-[0.25em] text-amber-900">Rare</span> : null}
           {card.isOneOfOne ? <span className="rounded-full border border-sky-400/35 bg-sky-100/90 px-3 py-1 text-xs font-semibold uppercase tracking-[0.25em] text-sky-800">1/1</span> : null}
         </div>
 
-        <div className="mt-8 grid gap-8 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
-          <div className="rounded-[2rem] border border-slate-300/50 bg-[#faf8f2]/95 p-6">
-            <div className="overflow-hidden rounded-[1.5rem] border border-slate-200/80 bg-gradient-to-br from-slate-100 via-white to-zinc-100">
+        <div className="mt-8 grid gap-8 xl:grid-cols-[auto_1fr]">
+          <div className="rounded-[2rem] border border-slate-300/50 bg-[#faf8f2]/95 p-4">
+            <div className="overflow-hidden rounded-[1.5rem] border border-slate-200/80 bg-gradient-to-br from-slate-100 via-white to-zinc-100 max-w-[300px] mx-auto">
               {card.imageUrl || card.backImageUrl ? (
-                <div className="relative h-[520px] overflow-hidden rounded-[1.25rem]">
-                  <img src={showBack ? card.backImageUrl ?? card.imageUrl : card.imageUrl ?? card.backImageUrl} alt={`${displayValue(card.playerName, "Card")} ${showBack ? "back" : "front"} card`} className="h-full w-full object-cover" />
+                <div className="relative aspect-[2/3] max-h-[400px] mx-auto overflow-hidden rounded-[1.25rem] p-4">
+                  <img src={showBack ? card.backImageUrl ?? card.imageUrl : card.imageUrl ?? card.backImageUrl} alt={`${displayValue(card.playerName, "Card")} ${showBack ? "back" : "front"} card`} className={`h-full w-full rounded-xl object-contain ${showBack ? "rotate-180" : ""}`} />
                 </div>
               ) : (
-                <div className="flex h-[520px] items-center justify-center text-zinc-500">
+                <div className="flex aspect-[2/3] items-center justify-center text-zinc-500">
                   <div className="text-center">
                     <p className="text-sm uppercase tracking-[0.25em]">Placeholder</p>
                     <p className="mt-2 text-lg font-medium text-zinc-600">Artwork preview</p>
@@ -238,18 +237,7 @@ export function CatalogueCardDetail({ card, relatedCards = [] }: CatalogueCardDe
               </button>
             </div>
 
-            <div className="mt-4 overflow-hidden rounded-[1.25rem] border border-slate-300/65 bg-white/85">
-              <div className="border-b border-slate-200 px-4 py-3 text-xs uppercase tracking-[0.25em] text-zinc-500">Back image</div>
-              <div className="h-80">
-                {card.backImageUrl ? (
-                  <img src={card.backImageUrl} alt={`${displayValue(card.playerName, "Card")} back image`} className="h-full w-full object-cover" />
-                ) : (
-                  <div className="flex h-full items-center justify-center bg-gradient-to-br from-slate-100 to-zinc-100 text-zinc-500">
-                    Back image placeholder
-                  </div>
-                )}
-              </div>
-            </div>
+
           </div>
 
           <div className="rounded-[2rem] border border-slate-300/50 bg-white/90 p-6">
@@ -257,10 +245,6 @@ export function CatalogueCardDetail({ card, relatedCards = [] }: CatalogueCardDe
               <div>
                 <p className="text-sm uppercase tracking-[0.3em] text-zinc-500">Price</p>
                 <p className="mt-2 text-4xl font-semibold text-amber-700">{formatGBP(displayPrice)}</p>
-              </div>
-              <div className="rounded-2xl border border-slate-300/60 bg-[#f8f5ee]/95 px-4 py-3 text-right text-sm text-zinc-600">
-                <p className="text-xs uppercase tracking-[0.25em] text-zinc-500">Estimated market value</p>
-                <p className="mt-1 font-semibold text-zinc-900">{formatGBP(displayMarketValue)}</p>
               </div>
             </div>
 
@@ -358,34 +342,40 @@ export function CatalogueCardDetail({ card, relatedCards = [] }: CatalogueCardDe
                   <dt className="text-zinc-500">Card number</dt>
                   <dd className="mt-1 font-semibold text-zinc-900">#{displayValue(card.cardNumber, "?")}</dd>
                 </div>
-                <div className="rounded-2xl border border-slate-300/60 bg-white/90 p-3">
-                  <dt className="text-zinc-500">Team</dt>
-                  <dd className="mt-1 font-semibold text-zinc-900">{displayValue(card.team)}</dd>
-                </div>
-                <div className="rounded-2xl border border-slate-300/60 bg-white/90 p-3">
-                  <dt className="text-zinc-500">Brand</dt>
-                  <dd className="mt-1 font-semibold text-zinc-900">{displayValue(card.brand)}</dd>
-                </div>
+                {card.team && String(card.team).trim() && (
+                  <div className="rounded-2xl border border-slate-300/60 bg-white/90 p-3">
+                    <dt className="text-zinc-500">Team</dt>
+                    <dd className="mt-1 font-semibold text-zinc-900">{card.team}</dd>
+                  </div>
+                )}
+                {card.brand && String(card.brand).trim() && (
+                  <div className="rounded-2xl border border-slate-300/60 bg-white/90 p-3">
+                    <dt className="text-zinc-500">Brand</dt>
+                    <dd className="mt-1 font-semibold text-zinc-900">{card.brand}</dd>
+                  </div>
+                )}
                 <div className="rounded-2xl border border-slate-300/60 bg-white/90 p-3">
                   <dt className="text-zinc-500">Set</dt>
                   <dd className="mt-1 font-semibold text-zinc-900">{setLabel}</dd>
                 </div>
-                <div className="rounded-2xl border border-slate-300/60 bg-white/90 p-3">
-                  <dt className="text-zinc-500">Season</dt>
-                  <dd className="mt-1 font-semibold text-zinc-900">{displayValue(card.season)}</dd>
-                </div>
-                <div className="rounded-2xl border border-slate-300/60 bg-white/90 p-3">
-                  <dt className="text-zinc-500">Parallel</dt>
-                  <dd className="mt-1 font-semibold text-zinc-900">{displayValue(card.parallel)}</dd>
-                </div>
-                <div className="rounded-2xl border border-slate-300/60 bg-white/90 p-3">
-                  <dt className="text-zinc-500">Rarity</dt>
-                  <dd className="mt-1 font-semibold text-zinc-900">{displayValue(card.rarity)}</dd>
-                </div>
-                <div className="rounded-2xl border border-slate-300/60 bg-white/90 p-3">
-                  <dt className="text-zinc-500">Print run</dt>
-                  <dd className="mt-1 font-semibold text-zinc-900">{displayPrintRun}</dd>
-                </div>
+                {card.season && String(card.season).trim() && (
+                  <div className="rounded-2xl border border-slate-300/60 bg-white/90 p-3">
+                    <dt className="text-zinc-500">Season</dt>
+                    <dd className="mt-1 font-semibold text-zinc-900">{card.season}</dd>
+                  </div>
+                )}
+                {card.parallel && String(card.parallel).trim() && (
+                  <div className="rounded-2xl border border-slate-300/60 bg-white/90 p-3">
+                    <dt className="text-zinc-500">Parallel</dt>
+                    <dd className="mt-1 font-semibold text-zinc-900">{card.parallel}</dd>
+                  </div>
+                )}
+                {displayPrintRun && (
+                  <div className="rounded-2xl border border-slate-300/60 bg-white/90 p-3">
+                    <dt className="text-zinc-500">Print run</dt>
+                    <dd className="mt-1 font-semibold text-zinc-900">{displayPrintRun}</dd>
+                  </div>
+                )}
                 <div className="rounded-2xl border border-slate-300/60 bg-white/90 p-3">
                   <dt className="text-zinc-500">Stock status</dt>
                   <dd className="mt-1 font-semibold text-zinc-900">{card.stockStatus}</dd>

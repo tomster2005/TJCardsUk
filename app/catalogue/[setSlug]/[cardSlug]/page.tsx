@@ -48,7 +48,6 @@ export default async function CatalogueCardPage({ params }: Props) {
     setName: data.set_name ?? data.setName,
     brand: data.brand,
     parallel: data.parallel,
-    rarity: data.rarity,
     price: data.price,
     stockStatus: data.stock_status ?? (availableQuantity === undefined ? "In stock" : availableQuantity > 0 ? "In stock" : "Out of stock"),
     imageUrl: data.image_url ?? data.imageUrl,
@@ -60,7 +59,6 @@ export default async function CatalogueCardPage({ params }: Props) {
     marketplacePrice: data.marketplace_price ?? data.marketplacePrice,
     printRun: data.print_run ?? data.printRun,
     population: data.population,
-    isRare: data.is_rare ?? data.isRare,
     isOneOfOne: data.is_one_of_one ?? data.isOneOfOne,
   };
 

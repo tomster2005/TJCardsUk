@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { Playfair_Display } from "next/font/google";
 import { CollectionProvider } from "@/contexts/CollectionContext";
 import { CartProvider } from "@/contexts/CartContext";
 import { AuthProvider } from "@/contexts/AuthContext";
@@ -15,6 +16,12 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const playfair = Playfair_Display({
+  variable: "--font-display",
+  subsets: ["latin"],
+  weight: ["400", "700", "900"],
+});
+
 export const metadata: Metadata = {
   title: "Collectra",
   description: "A collector-first platform for managing trading card collections.",
@@ -28,7 +35,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${playfair.variable} h-full antialiased`}
     >
       <body className="min-h-full bg-[#f8f6f2] text-zinc-800">
         <AuthProvider>

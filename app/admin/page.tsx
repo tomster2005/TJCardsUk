@@ -34,6 +34,17 @@ export default function AdminPage() {
             </Link>
           </div>
         </div>
+        <div className="rounded-3xl border border-slate-300/60 bg-white/90 p-7 card-lift">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-zinc-900">Bulk Image Upload</h2>
+              <p className="mt-1 text-sm text-zinc-600">Upload scanned card images in bulk (front/back pairs).</p>
+            </div>
+            <Link href="/admin/bulk-upload" className="rounded-full border border-slate-300/70 bg-white px-4 py-2 text-sm font-semibold text-zinc-700">
+              Upload
+            </Link>
+          </div>
+        </div>
       </section>
     </div>
   );
