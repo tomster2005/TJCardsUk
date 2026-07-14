@@ -524,57 +524,75 @@ export function BinderView() {
       {/* Binder Body */}
       <div className="mx-auto grid w-full max-w-6xl gap-6 lg:grid-cols-[1fr_280px]">
 
-        {/* Flipbook binder */}
+        {/* Binder pages */}
         <div className="binder-cover mx-auto w-full rounded-2xl p-2 sm:rounded-3xl sm:p-3" style={{ boxShadow: "0 40px 100px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04)" }}>
-          <div className="flex justify-center overflow-hidden rounded-[1.3rem]">
-            {/* @ts-ignore - react-pageflip types are loose */}
-            <HTMLFlipBook
-              ref={bookRef}
-              width={340}
-              height={480}
-              size="stretch"
-              minWidth={280}
-              maxWidth={400}
-              minHeight={400}
-              maxHeight={540}
-              showCover={false}
-              mobileScrollSupport={true}
-              onFlip={onFlip}
-              className="binder-flipbook"
-              style={{}}
-              startPage={0}
-              drawShadow={true}
-              flippingTime={600}
-              usePortrait={isMobile}
-              startZIndex={0}
-              autoSize={true}
-              maxShadowOpacity={0.4}
-              showPageCorners={true}
-              disableFlipByClick={true}
-              useMouseEvents={false}
-              swipeDistance={30}
-              clickEventForward={true}
-            >
-              {pages.map((pageCards, i) => (
+
+          {/* Mobile: simple page view */}
+          {isMobile ? (
+            <div className="rounded-[1.3rem] overflow-hidden">
+              {pages[currentPage] && (
                 <BinderPage
-                  key={i}
-                  pageNum={i + 1}
+                  pageNum={currentPage + 1}
                   totalPages={totalPages}
-                  cards={pageCards}
-                  collectedOnPage={pageCards.filter((c) => c.collected).length}
+                  cards={pages[currentPage]}
+                  collectedOnPage={pages[currentPage].filter((c) => c.collected).length}
                   selectedCard={selectedCard}
                   onSelectCard={setSelectedCard}
                   onToggleCollected={toggleCollected}
                 />
-              ))}
-            </HTMLFlipBook>
-          </div>
+              )}
+            </div>
+          ) : (
+            <div className="flex justify-center overflow-hidden rounded-[1.3rem]">
+              {/* @ts-ignore - react-pageflip types are loose */}
+              <HTMLFlipBook
+                ref={bookRef}
+                width={340}
+                height={480}
+                size="stretch"
+                minWidth={280}
+                maxWidth={400}
+                minHeight={400}
+                maxHeight={540}
+                showCover={false}
+                mobileScrollSupport={true}
+                onFlip={onFlip}
+                className="binder-flipbook"
+                style={{}}
+                startPage={0}
+                drawShadow={true}
+                flippingTime={600}
+                usePortrait={false}
+                startZIndex={0}
+                autoSize={true}
+                maxShadowOpacity={0.4}
+                showPageCorners={true}
+                disableFlipByClick={true}
+                useMouseEvents={false}
+                swipeDistance={30}
+                clickEventForward={true}
+              >
+                {pages.map((pageCards, i) => (
+                  <BinderPage
+                    key={i}
+                    pageNum={i + 1}
+                    totalPages={totalPages}
+                    cards={pageCards}
+                    collectedOnPage={pageCards.filter((c) => c.collected).length}
+                    selectedCard={selectedCard}
+                    onSelectCard={setSelectedCard}
+                    onToggleCollected={toggleCollected}
+                  />
+                ))}
+              </HTMLFlipBook>
+            </div>
+          )}
 
           {/* Navigation below */}
           <div className="mt-4 flex items-center justify-between px-4 pb-2">
             <button
               type="button"
-              onClick={() => bookRef.current?.pageFlip()?.flipPrev()}
+              onClick={() => isMobile ? setCurrentPage(Math.max(0, currentPage - 1)) : bookRef.current?.pageFlip()?.flipPrev()}
               className="rounded-full px-4 py-2 text-sm font-semibold text-[rgba(200,200,200,0.7)] transition hover:bg-[rgba(255,255,255,0.06)] hover:text-white"
               style={{ border: "1px solid rgba(255,255,255,0.1)" }}
             >
@@ -582,12 +600,12 @@ export function BinderView() {
             </button>
 
             <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[rgba(200,200,200,0.5)]">
-              {currentPage + 1}–{Math.min(currentPage + 2, totalPages)} of {totalPages}
+              {currentPage + 1} of {totalPages}
             </p>
 
             <button
               type="button"
-              onClick={() => bookRef.current?.pageFlip()?.flipNext()}
+              onClick={() => isMobile ? setCurrentPage(Math.min(totalPages - 1, currentPage + 1)) : bookRef.current?.pageFlip()?.flipNext()}
               className="rounded-full px-4 py-2 text-sm font-semibold transition hover:-translate-y-0.5"
               style={{ background: "linear-gradient(135deg, #f5d97a, #c89b3c)", color: "#0d0d0f", boxShadow: "0 2px 12px rgba(200,155,60,0.4)" }}
             >

@@ -180,7 +180,7 @@ export function SiteNav() {
           onClick={() => setMobileOpen((v) => !v)}
           aria-expanded={mobileOpen}
           aria-label="Toggle navigation"
-          className="inline-flex items-center gap-2 rounded-full border border-[rgba(0,0,0,0.1)] bg-white px-3 py-2 text-sm font-medium text-zinc-600 md:hidden"
+          className="relative z-50 inline-flex items-center gap-2 rounded-full border border-[rgba(0,0,0,0.1)] bg-white px-3 py-2 text-sm font-medium text-zinc-600 md:hidden active:scale-95 touch-manipulation"
         >
           <span className="flex flex-col gap-[3.5px]">
             <span className={`block h-[1.5px] w-3.5 rounded-full bg-current transition-all duration-200 ${mobileOpen ? "translate-y-[2.5px] rotate-45" : ""}`} />
