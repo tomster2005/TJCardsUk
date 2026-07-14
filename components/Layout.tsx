@@ -9,7 +9,7 @@ export function Layout({ children }: { children: ReactNode }) {
       <SiteNav />
       <CartDrawer />
       <FlyToCartLayer />
-      <main className="relative mx-auto w-full max-w-[116rem] px-4 pb-20 pt-8 sm:px-6 lg:px-10 xl:px-14">
+      <main className="relative mx-auto w-full max-w-[116rem] px-3 pb-20 pt-6 sm:px-6 sm:pt-8 lg:px-10 xl:px-14">
         {children}
       </main>
     </div>

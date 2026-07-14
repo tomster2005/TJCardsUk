@@ -1,8 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState, useRef } from "react";
+import { useEffect, useMemo, useState, useRef, forwardRef, useCallback } from "react";
 import { getBrowserSupabase } from "@/lib/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { VaultLoader } from "@/components/VaultLoader";
+import { EmptyState } from "@/components/EmptyState";
+import HTMLFlipBook from "react-pageflip";
 
 type BinderSet = {
   id: string;
@@ -20,11 +23,11 @@ type ChecklistCard = {
   parallel: string | null;
   page_number: number;
   position: number;
-  owned: boolean;
   image_url: string | null;
   stock: number;
   community_image: string | null;
   community_credit: string | null;
+  collected: boolean;
 };
 
 function PocketCell({ card, isActive, onSelect }: {
@@ -39,7 +42,7 @@ function PocketCell({ card, isActive, onSelect }: {
     <button
       type="button"
       onClick={onSelect}
-      className={`relative aspect-[2.5/3.5] min-h-[100px] w-full overflow-hidden rounded-xl transition-all duration-280 focus:outline-none ${
+      className={`relative aspect-[2.5/3.5] min-h-[85px] w-full overflow-hidden rounded-lg transition-all duration-280 focus:outline-none ${
         !hasImage ? "pocket-empty" : "pocket-filled"
       }`}
       style={isActive ? { outline: "2px solid #c89b3c", outlineOffset: "2px" } : {}}
@@ -48,13 +51,20 @@ function PocketCell({ card, isActive, onSelect }: {
         <div className="flex h-full flex-col items-center justify-center gap-1.5 p-2">
           <span className="text-[10px] font-bold text-[rgba(28,25,23,0.5)] text-center leading-tight">{card.player_name}</span>
           <span className="text-[8px] font-bold uppercase tracking-[0.2em] text-[rgba(28,25,23,0.3)]">
-            {card.owned ? "No image" : "Missing"}
+            {card.collected ? "No image" : "Not collected"}
           </span>
           <span className="text-[7px] text-[rgba(28,25,23,0.25)]">#{card.card_number}</span>
         </div>
       ) : (
         <>
           <img src={displayImage!} alt={card.player_name} className="h-full w-full object-cover transition-transform duration-400 hover:scale-[1.06]" />
+          {/* Grey overlay for uncollected cards */}
+          {!card.collected && (
+            <div className="pointer-events-none absolute inset-0" style={{ background: "rgba(80,80,80,0.55)", mixBlendMode: "saturation" }} />
+          )}
+          {!card.collected && (
+            <div className="pointer-events-none absolute inset-0" style={{ background: "rgba(60,60,60,0.35)" }} />
+          )}
           <div className="pointer-events-none absolute inset-0" style={{ background: "linear-gradient(to top, rgba(0,0,0,0.7) 0%, transparent 60%)" }} />
           <div className="absolute inset-x-0 bottom-0 p-1.5">
             <p className="truncate text-[8px] font-bold text-white">{card.player_name}</p>
@@ -62,10 +72,10 @@ function PocketCell({ card, isActive, onSelect }: {
               <p className="truncate text-[6px] text-[rgba(255,255,255,0.5)]">Photo: {card.community_credit}</p>
             )}
           </div>
-          {card.owned && (
-            <span className="absolute left-1 top-1 rounded-full bg-[rgba(34,197,94,0.9)] px-1.5 py-0.5 text-[7px] font-black text-white">In Stock</span>
+          {card.collected && (
+            <span className="absolute left-1 top-1 rounded-full bg-[rgba(34,197,94,0.9)] px-1.5 py-0.5 text-[7px] font-black text-white">✓</span>
           )}
-          {card.stock > 1 && (
+          {!card.collected && card.stock > 0 && (
             <span className="absolute right-1 top-1 rounded-full px-1.5 py-0.5 text-[7px] font-black text-[#0d0d0f]" style={{ background: "linear-gradient(135deg, #f5d97a, #c89b3c)" }}>{card.stock}x</span>
           )}
         </>
@@ -73,6 +83,38 @@ function PocketCell({ card, isActive, onSelect }: {
     </button>
   );
 }
+
+const BinderPage = forwardRef<HTMLDivElement, {
+  pageNum: number;
+  totalPages: number;
+  cards: ChecklistCard[];
+  collectedOnPage: number;
+  selectedCard: ChecklistCard | null;
+  onSelectCard: (card: ChecklistCard | null) => void;
+}>(({ pageNum, totalPages, cards, collectedOnPage, selectedCard, onSelectCard }, ref) => (
+  <div ref={ref} className="binder-page h-full p-5 pb-8" style={{ background: "#f5f0e8" }}>
+    <div className="mb-3 flex items-center justify-between">
+      <p className="text-[9px] font-bold uppercase tracking-[0.25em] text-[rgba(100,100,100,0.7)]">Page {pageNum} of {totalPages}</p>
+      <span className="text-[10px] text-[rgba(100,100,100,0.7)]">{collectedOnPage}/{cards.length}</span>
+    </div>
+    <div className="grid grid-cols-3 gap-2.5">
+      {cards.map((card) => (
+        <PocketCell
+          key={card.id}
+          card={card}
+          isActive={card.id === selectedCard?.id}
+          onSelect={() => onSelectCard(card.id === selectedCard?.id ? null : card)}
+        />
+      ))}
+      {cards.length === 0 && (
+        <div className="col-span-3 py-12 text-center text-sm text-[rgba(28,25,23,0.4)]">
+          No cards on this page
+        </div>
+      )}
+    </div>
+  </div>
+));
+BinderPage.displayName = "BinderPage";
 
 function UploadModal({ card, onClose, onUploaded }: {
   card: ChecklistCard;
@@ -95,7 +137,6 @@ function UploadModal({ card, onClose, onUploaded }: {
       const supabase = getBrowserSupabase();
       if (!supabase) throw new Error("No client");
 
-      // Get username
       const { data: profile } = await supabase
         .from("profiles")
         .select("username")
@@ -104,7 +145,6 @@ function UploadModal({ card, onClose, onUploaded }: {
 
       const username = profile?.username || "Anonymous";
 
-      // Upload to storage
       const ext = file.name.split(".").pop();
       const path = `community/${card.id}_${Date.now()}.${ext}`;
       const { error: uploadError } = await supabase.storage
@@ -113,12 +153,10 @@ function UploadModal({ card, onClose, onUploaded }: {
 
       if (uploadError) throw uploadError;
 
-      // Get public URL
       const { data: urlData } = supabase.storage
         .from("card-images")
         .getPublicUrl(path);
 
-      // Insert community_images record
       const { error: insertError } = await supabase
         .from("community_images")
         .insert({
@@ -151,12 +189,7 @@ function UploadModal({ card, onClose, onUploaded }: {
           Upload your own photo of this card. It will be reviewed before appearing publicly. Your username will be credited.
         </p>
 
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/*"
-          className="mt-4 w-full text-sm"
-        />
+        <input ref={fileRef} type="file" accept="image/*" className="mt-4 w-full text-sm" />
 
         {message && (
           <p className={`mt-3 text-sm ${message.startsWith("Error") ? "text-red-600" : "text-green-700"}`}>
@@ -165,17 +198,10 @@ function UploadModal({ card, onClose, onUploaded }: {
         )}
 
         <div className="mt-4 flex gap-2">
-          <button
-            onClick={handleUpload}
-            disabled={uploading}
-            className="btn-gold rounded-xl px-4 py-2 text-sm font-bold disabled:opacity-50"
-          >
+          <button onClick={handleUpload} disabled={uploading} className="btn-gold rounded-xl px-4 py-2 text-sm font-bold disabled:opacity-50">
             {uploading ? "Uploading..." : "Submit Photo"}
           </button>
-          <button
-            onClick={onClose}
-            className="rounded-xl border border-[var(--vault-border)] px-4 py-2 text-sm font-medium text-[rgba(28,25,23,0.6)]"
-          >
+          <button onClick={onClose} className="rounded-xl border border-[var(--vault-border)] px-4 py-2 text-sm font-medium text-[rgba(28,25,23,0.6)]">
             Cancel
           </button>
         </div>
@@ -189,12 +215,21 @@ export function BinderView() {
   const [sets, setSets] = useState<BinderSet[]>([]);
   const [activeSetId, setActiveSetId] = useState<string | null>(null);
   const [checklist, setChecklist] = useState<ChecklistCard[]>([]);
-  const [activePageIndex, setActivePageIndex] = useState(0);
   const [selectedCard, setSelectedCard] = useState<ChecklistCard | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploadCard, setUploadCard] = useState<ChecklistCard | null>(null);
+  const [currentPage, setCurrentPage] = useState(0);
+  const [toggling, setToggling] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const bookRef = useRef<any>(null);
 
-  // Load binder sets
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
+
   useEffect(() => {
     async function load() {
       const supabase = getBrowserSupabase();
@@ -202,14 +237,12 @@ export function BinderView() {
       const { data } = await supabase.from("binder_sets").select("*").order("created_at", { ascending: false });
       if (data && data.length > 0) {
         setSets(data);
-        setActiveSetId(data[0].id);
       }
       setLoading(false);
     }
     load();
   }, []);
 
-  // Load checklist when set changes
   useEffect(() => {
     if (!activeSetId) return;
     loadChecklist();
@@ -234,21 +267,33 @@ export function BinderView() {
       return;
     }
 
-    // Get matching cards from cards table
+    // Get user's collected progress
+    const checklistIds = checklistData.map((c) => c.id);
+    let collectedSet = new Set<string>();
+    if (user) {
+      const { data: progressData } = await supabase
+        .from("user_binder_progress")
+        .select("checklist_id")
+        .eq("user_id", user.id)
+        .in("checklist_id", checklistIds);
+      if (progressData) {
+        collectedSet = new Set(progressData.map((p) => p.checklist_id));
+      }
+    }
+
+    // Get card images
     const { data: cardsData } = await supabase
       .from("cards")
       .select("card_number, image_url, image_front, stock, set_name")
       .eq("set_name", activeSet?.title || "");
 
     // Get approved community images
-    const checklistIds = checklistData.map((c) => c.id);
     const { data: communityData } = await supabase
       .from("community_images")
       .select("checklist_id, image_url, username")
       .eq("status", "approved")
       .in("checklist_id", checklistIds);
 
-    // Build lookups
     const cardLookup = new Map<string, { image_url: string | null; stock: number }>();
     if (cardsData) {
       for (const c of cardsData) {
@@ -262,55 +307,173 @@ export function BinderView() {
     const communityLookup = new Map<string, { image_url: string; username: string }>();
     if (communityData) {
       for (const c of communityData) {
-        // First approved image wins
         if (!communityLookup.has(c.checklist_id)) {
           communityLookup.set(c.checklist_id, { image_url: c.image_url, username: c.username || "Anonymous" });
         }
       }
     }
 
-    // Merge
     const merged: ChecklistCard[] = checklistData.map((item) => {
       const match = cardLookup.get(item.card_number);
       const community = communityLookup.get(item.id);
       return {
         ...item,
-        owned: !!match,
         image_url: match?.image_url || null,
         stock: match?.stock || 0,
         community_image: community?.image_url || null,
         community_credit: community?.username || null,
+        collected: collectedSet.has(item.id),
       };
     });
 
     setChecklist(merged);
-    setActivePageIndex(0);
     setSelectedCard(null);
+    setCurrentPage(0);
+  }
+
+  async function toggleCollected(card: ChecklistCard) {
+    if (!user || toggling) return;
+    setToggling(true);
+
+    const supabase = getBrowserSupabase();
+    if (!supabase) { setToggling(false); return; }
+
+    if (card.collected) {
+      // Remove
+      await supabase
+        .from("user_binder_progress")
+        .delete()
+        .eq("user_id", user.id)
+        .eq("checklist_id", card.id);
+    } else {
+      // Add
+      await supabase
+        .from("user_binder_progress")
+        .insert({ user_id: user.id, checklist_id: card.id });
+    }
+
+    // Update local state
+    const updated = checklist.map((c) =>
+      c.id === card.id ? { ...c, collected: !c.collected } : c
+    );
+    setChecklist(updated);
+    setSelectedCard({ ...card, collected: !card.collected });
+    setToggling(false);
   }
 
   const activeSet = sets.find((s) => s.id === activeSetId);
   const totalPages = activeSet ? Math.ceil(activeSet.total_cards / 9) : 1;
-  const pageCards = useMemo(
-    () => checklist.filter((c) => c.page_number === activePageIndex + 1),
-    [checklist, activePageIndex]
-  );
-  const ownedCount = checklist.filter((c) => c.owned).length;
-  const completion = checklist.length > 0 ? Math.round((ownedCount / checklist.length) * 100) : 0;
-  const ownedOnPage = pageCards.filter((c) => c.owned).length;
-  const pageCompletion = pageCards.length > 0 ? Math.round((ownedOnPage / pageCards.length) * 100) : 0;
 
+  const pages = useMemo(() => {
+    const p: ChecklistCard[][] = [];
+    for (let i = 1; i <= totalPages; i++) {
+      p.push(checklist.filter((c) => c.page_number === i));
+    }
+    return p;
+  }, [checklist, totalPages]);
+
+  const collectedCount = checklist.filter((c) => c.collected).length;
+  const completion = checklist.length > 0 ? Math.round((collectedCount / checklist.length) * 100) : 0;
   const circumference = 2 * Math.PI * 20;
   const dashOffset = circumference - (completion / 100) * circumference;
 
+  const onFlip = useCallback((e: any) => {
+    setCurrentPage(e.data);
+    setSelectedCard(null);
+  }, []);
+
   if (loading) {
-    return <div className="flex items-center justify-center py-20 text-[rgba(28,25,23,0.5)]">Loading binders...</div>;
+    return <VaultLoader message="Loading binders..." />;
   }
 
   if (sets.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 text-center">
-        <p className="text-lg font-bold text-[#1c1917]">No binder sets yet</p>
-        <p className="mt-1 text-sm text-[rgba(28,25,23,0.5)]">Create one in the admin panel with a CSV checklist.</p>
+      <EmptyState
+        icon="📖"
+        title="No binders available yet"
+        description="Binder sets are added by the admin. Check back soon for new sets to collect."
+        actions={[
+          { label: "Browse catalogue", href: "/catalogue", primary: true },
+          { label: "Back to dashboard", href: "/dashboard" },
+        ]}
+      />
+    );
+  }
+
+  // Binder selection screen
+  if (!activeSetId) {
+    return (
+      <div className="space-y-10 animate-fade-up">
+        {/* Hero */}
+        <div className="relative overflow-hidden rounded-3xl px-8 py-14 text-center" style={{ background: "linear-gradient(160deg, #0d0d0f 0%, #1a0e06 40%, #2d1a0a 70%, #0d0d0f 100%)", border: "1px solid rgba(200,155,60,0.15)" }}>
+          {/* Animated grid overlay */}
+          <div className="pointer-events-none absolute inset-0 opacity-[0.04]" style={{ backgroundImage: "linear-gradient(rgba(200,155,60,0.3) 1px, transparent 1px), linear-gradient(90deg, rgba(200,155,60,0.3) 1px, transparent 1px)", backgroundSize: "60px 60px" }} />
+          {/* Floating glow orbs */}
+          <div className="pointer-events-none absolute -left-20 -top-20 h-60 w-60 rounded-full opacity-20 animate-pulse" style={{ background: "radial-gradient(circle, rgba(200,155,60,0.4), transparent 70%)" }} />
+          <div className="pointer-events-none absolute -bottom-20 -right-20 h-80 w-80 rounded-full opacity-15 animate-pulse" style={{ background: "radial-gradient(circle, rgba(200,155,60,0.3), transparent 70%)", animationDelay: "1s" }} />
+
+          <div className="relative z-10">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl" style={{ background: "linear-gradient(135deg, rgba(200,155,60,0.15), rgba(200,155,60,0.05))", border: "1px solid rgba(200,155,60,0.3)", boxShadow: "0 0 30px rgba(200,155,60,0.15)" }}>
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#c89b3c" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" />
+                <path d="M8 7h6" /><path d="M8 11h4" />
+              </svg>
+            </div>
+            <span className="text-[11px] font-bold uppercase tracking-[0.4em] text-[var(--gold-500)]">The Vault</span>
+            <h1 className="mt-3 text-4xl font-black text-white font-display">Your Binders</h1>
+            <p className="mx-auto mt-2 max-w-md text-[14px] text-[rgba(255,255,255,0.5)]">
+              Open a binder to track your collection. Mark cards as collected and watch your progress grow.
+            </p>
+          </div>
+        </div>
+
+        {/* Binder cards */}
+        <div className="mx-auto grid w-full max-w-4xl gap-5 sm:grid-cols-2">
+          {sets.map((s, idx) => (            <button
+              key={s.id}
+              onClick={() => setActiveSetId(s.id)}
+              className="group relative overflow-hidden rounded-2xl text-left transition-all duration-400 hover:-translate-y-2 hover:scale-[1.02]"
+              style={{ animationDelay: `${idx * 100}ms` }}
+            >
+              {/* Card background */}
+              <div className="absolute inset-0" style={{ background: "linear-gradient(145deg, #1a0e06 0%, #2d1a0a 30%, #3d2410 60%, #2d1a0a 100%)" }} />
+              {/* Leather texture */}
+              <div className="pointer-events-none absolute inset-0 opacity-30" style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='80' height='80' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.15'/%3E%3C/svg%3E\")" }} />
+              {/* Gold shimmer on hover */}
+              <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-500 group-hover:opacity-100" style={{ background: "linear-gradient(135deg, rgba(200,155,60,0.12) 0%, transparent 50%, rgba(200,155,60,0.08) 100%)" }} />
+              {/* Gold border glow on hover */}
+              <div className="pointer-events-none absolute inset-0 rounded-2xl opacity-0 transition-opacity duration-400 group-hover:opacity-100" style={{ boxShadow: "inset 0 0 0 1px rgba(200,155,60,0.4), 0 0 30px rgba(200,155,60,0.15)" }} />
+              {/* Default border */}
+              <div className="pointer-events-none absolute inset-0 rounded-2xl transition-opacity duration-400 group-hover:opacity-0" style={{ boxShadow: "inset 0 0 0 1px rgba(200,155,60,0.12)" }} />
+
+              <div className="relative z-10 p-6">
+                {/* Top row */}
+                <div className="flex items-start justify-between">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl" style={{ background: "linear-gradient(135deg, rgba(200,155,60,0.2), rgba(200,155,60,0.05))", border: "1px solid rgba(200,155,60,0.25)" }}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#c89b3c" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" />
+                    </svg>
+                  </div>
+                  <span className="rounded-full px-2.5 py-1 text-[10px] font-bold text-[var(--gold-400)]" style={{ background: "rgba(200,155,60,0.1)", border: "1px solid rgba(200,155,60,0.2)" }}>
+                    {s.total_cards} cards
+                  </span>
+                </div>
+
+                {/* Title */}
+                <h3 className="mt-4 text-xl font-black text-white transition-colors group-hover:text-[var(--gold-300)]">{s.title}</h3>
+                {s.description && <p className="mt-1.5 text-[12px] leading-relaxed text-[rgba(255,255,255,0.45)]">{s.description}</p>}
+
+                {/* Bottom CTA */}
+                <div className="mt-5 flex items-center gap-2 text-[12px] font-bold text-[var(--gold-500)] transition-all duration-300 group-hover:gap-3">
+                  <span>Open binder</span>
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="transition-transform duration-300 group-hover:translate-x-1">
+                    <path d="M5 3L9 7L5 11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
       </div>
     );
   }
@@ -320,10 +483,18 @@ export function BinderView() {
 
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <span className="text-[11px] font-bold uppercase tracking-[0.3em] text-[var(--gold-500)]">Digital Binder</span>
-          <h1 className="mt-1 text-2xl font-black text-[#1c1917] font-display">{activeSet?.title}</h1>
-          <p className="mt-0.5 text-[13px] text-[rgba(28,25,23,0.5)]">{activeSet?.description || `${ownedCount} of ${checklist.length} collected`}</p>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => { setActiveSetId(null); setChecklist([]); setSelectedCard(null); }}
+            className="rounded-full p-2 text-[rgba(28,25,23,0.5)] transition hover:bg-[rgba(0,0,0,0.05)] hover:text-[#1c1917]"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 12L6 8L10 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          </button>
+          <div>
+            <span className="text-[11px] font-bold uppercase tracking-[0.3em] text-[var(--gold-500)]">Digital Binder</span>
+            <h1 className="mt-1 text-2xl font-black text-[#1c1917] font-display">{activeSet?.title}</h1>
+            <p className="mt-0.5 text-[13px] text-[rgba(28,25,23,0.5)]">{collectedCount} of {checklist.length} collected</p>
+          </div>
         </div>
 
         {/* Completion ring */}
@@ -349,119 +520,77 @@ export function BinderView() {
         </div>
       </div>
 
-      {/* Set selector (if multiple) */}
-      {sets.length > 1 && (
-        <div className="flex gap-2 flex-wrap">
-          {sets.map((s) => (
-            <button
-              key={s.id}
-              onClick={() => setActiveSetId(s.id)}
-              className={`rounded-full px-4 py-1.5 text-xs font-semibold transition ${
-                s.id === activeSetId
-                  ? "btn-gold"
-                  : "border border-[var(--vault-border)] text-[rgba(28,25,23,0.6)] hover:bg-[rgba(0,0,0,0.04)]"
-              }`}
-            >
-              {s.title}
-            </button>
-          ))}
-        </div>
-      )}
-
       {/* Binder Body */}
-      <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
+      <div className="mx-auto grid w-full max-w-6xl gap-6 lg:grid-cols-[1fr_280px]">
 
-        {/* Leather binder */}
-        <div className="binder-cover overflow-hidden rounded-3xl p-2" style={{ boxShadow: "0 40px 100px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04)" }}>
-          <div className="flex overflow-hidden rounded-[1.3rem]">
+        {/* Flipbook binder */}
+        <div className="binder-cover mx-auto w-full rounded-2xl p-2 sm:rounded-3xl sm:p-3" style={{ boxShadow: "0 40px 100px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04)" }}>
+          <div className="flex justify-center overflow-hidden rounded-[1.3rem]">
+            {/* @ts-ignore - react-pageflip types are loose */}
+            <HTMLFlipBook
+              ref={bookRef}
+              width={340}
+              height={480}
+              size="stretch"
+              minWidth={280}
+              maxWidth={400}
+              minHeight={400}
+              maxHeight={540}
+              showCover={false}
+              mobileScrollSupport={true}
+              onFlip={onFlip}
+              className="binder-flipbook"
+              style={{}}
+              startPage={0}
+              drawShadow={true}
+              flippingTime={600}
+              usePortrait={isMobile}
+              startZIndex={0}
+              autoSize={true}
+              maxShadowOpacity={0.4}
+              showPageCorners={true}
+              disableFlipByClick={true}
+              useMouseEvents={false}
+              swipeDistance={30}
+              clickEventForward={true}
+            >
+              {pages.map((pageCards, i) => (
+                <BinderPage
+                  key={i}
+                  pageNum={i + 1}
+                  totalPages={totalPages}
+                  cards={pageCards}
+                  collectedOnPage={pageCards.filter((c) => c.collected).length}
+                  selectedCard={selectedCard}
+                  onSelectCard={setSelectedCard}
+                />
+              ))}
+            </HTMLFlipBook>
+          </div>
 
-            {/* Spine */}
-            <div className="binder-spine flex w-7 flex-shrink-0 flex-col items-center justify-between py-6">
-              <div className="flex flex-col gap-2">
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <div key={i} className="h-1 w-1 rounded-full" style={{ background: "rgba(255,255,255,0.08)" }} />
-                ))}
-              </div>
-              <div className="flex flex-col gap-2">
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <div key={i} className="h-1 w-1 rounded-full" style={{ background: "rgba(255,255,255,0.08)" }} />
-                ))}
-              </div>
-            </div>
+          {/* Navigation below */}
+          <div className="mt-4 flex items-center justify-between px-4 pb-2">
+            <button
+              type="button"
+              onClick={() => bookRef.current?.pageFlip()?.flipPrev()}
+              className="rounded-full px-4 py-2 text-sm font-semibold text-[rgba(200,200,200,0.7)] transition hover:bg-[rgba(255,255,255,0.06)] hover:text-white"
+              style={{ border: "1px solid rgba(255,255,255,0.1)" }}
+            >
+              Prev
+            </button>
 
-            {/* Page */}
-            <div className="binder-page flex-1 p-6">
-              {/* Page header */}
-              <div className="mb-4 flex items-center justify-between">
-                <div>
-                  <p className="text-[9px] font-bold uppercase tracking-[0.25em] text-[rgba(100,100,100,0.7)]">Page {activePageIndex + 1} of {totalPages}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-[rgba(100,100,100,0.7)]">{ownedOnPage}/{pageCards.length}</span>
-                  <div className="h-1.5 w-20 overflow-hidden rounded-full" style={{ background: "rgba(0,0,0,0.08)" }}>
-                    <div
-                      className="h-full rounded-full animate-progress-grow"
-                      style={{ width: `${pageCompletion}%`, background: "linear-gradient(90deg, #c89b3c, #f5d97a)" }}
-                    />
-                  </div>
-                </div>
-              </div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[rgba(200,200,200,0.5)]">
+              {currentPage + 1}–{Math.min(currentPage + 2, totalPages)} of {totalPages}
+            </p>
 
-              {/* 3x3 grid */}
-              <div className="grid grid-cols-3 gap-3">
-                {pageCards.map((card) => (
-                  <PocketCell
-                    key={card.id}
-                    card={card}
-                    isActive={card.id === selectedCard?.id}
-                    onSelect={() => setSelectedCard(card.id === selectedCard?.id ? null : card)}
-                  />
-                ))}
-                {pageCards.length === 0 && (
-                  <div className="col-span-3 py-12 text-center text-sm text-[rgba(28,25,23,0.4)]">
-                    No cards on this page
-                  </div>
-                )}
-              </div>
-
-              {/* Navigation */}
-              <div className="mt-5 flex items-center justify-between">
-                <button
-                  type="button"
-                  onClick={() => { setActivePageIndex((i) => (i === 0 ? totalPages - 1 : i - 1)); setSelectedCard(null); }}
-                  className="rounded-full px-4 py-2 text-sm font-semibold text-[rgba(80,80,80,0.8)] transition hover:bg-[rgba(0,0,0,0.06)] hover:text-[rgba(30,30,30,0.9)]"
-                  style={{ border: "1px solid rgba(0,0,0,0.1)" }}
-                >
-                  Prev
-                </button>
-
-                <div className="flex gap-1.5">
-                  {Array.from({ length: Math.min(totalPages, 10) }).map((_, i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={() => { setActivePageIndex(i); setSelectedCard(null); }}
-                      className="rounded-full transition-all duration-200"
-                      style={{
-                        height: 8,
-                        width: i === activePageIndex ? 20 : 8,
-                        background: i === activePageIndex ? "#c89b3c" : "rgba(0,0,0,0.15)",
-                      }}
-                    />
-                  ))}
-                  {totalPages > 10 && <span className="text-[10px] text-[rgba(28,25,23,0.4)] self-center ml-1">+{totalPages - 10}</span>}
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => { setActivePageIndex((i) => (i + 1) % totalPages); setSelectedCard(null); }}
-                  className="rounded-full px-4 py-2 text-sm font-semibold transition hover:-translate-y-0.5"
-                  style={{ background: "linear-gradient(135deg, #f5d97a, #c89b3c)", color: "#0d0d0f", boxShadow: "0 2px 12px rgba(200,155,60,0.4)" }}
-                >
-                  Next
-                </button>
-              </div>
-            </div>
+            <button
+              type="button"
+              onClick={() => bookRef.current?.pageFlip()?.flipNext()}
+              className="rounded-full px-4 py-2 text-sm font-semibold transition hover:-translate-y-0.5"
+              style={{ background: "linear-gradient(135deg, #f5d97a, #c89b3c)", color: "#0d0d0f", boxShadow: "0 2px 12px rgba(200,155,60,0.4)" }}
+            >
+              Next
+            </button>
           </div>
         </div>
 
@@ -475,9 +604,8 @@ export function BinderView() {
                 <p className="text-[12px] text-[rgba(28,25,23,0.5)]">#{selectedCard.card_number}{selectedCard.team ? ` - ${selectedCard.team}` : ""}</p>
               </div>
 
-              {/* Image */}
               <div className="p-4">
-                <div className="relative h-52 overflow-hidden rounded-xl">
+                <div className={`relative h-52 overflow-hidden rounded-xl ${!selectedCard.collected ? "grayscale-[60%] opacity-80" : ""} transition-all duration-300`}>
                   {(selectedCard.image_url || selectedCard.community_image) ? (
                     <>
                       <img src={(selectedCard.image_url || selectedCard.community_image)!} alt={selectedCard.player_name} className="h-full w-full object-contain" />
@@ -490,20 +618,35 @@ export function BinderView() {
                   ) : (
                     <div className="flex h-full flex-col items-center justify-center gap-2" style={{ background: "linear-gradient(135deg, #f0ede6, #e8e4dc)" }}>
                       <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-[rgba(28,25,23,0.3)]">
-                        {selectedCard.owned ? "No image" : "Not collected"}
+                        {selectedCard.collected ? "No image" : "Not collected"}
                       </p>
                     </div>
                   )}
                 </div>
 
-                {/* Upload button - only for logged in users when no image exists */}
+                {/* Collect / Uncollect button */}
+                {user && (
+                  <button
+                    onClick={() => toggleCollected(selectedCard)}
+                    disabled={toggling}
+                    className={`mt-3 w-full rounded-xl py-2.5 text-[12px] font-bold transition-all duration-300 disabled:opacity-50 ${
+                      selectedCard.collected
+                        ? "border border-red-200 text-red-600 hover:bg-red-50"
+                        : "btn-gold"
+                    }`}
+                  >
+                    {toggling ? "..." : selectedCard.collected ? "Remove from collection" : "Mark as collected ✓"}
+                  </button>
+                )}
+
+                {/* Upload button */}
                 {user && !selectedCard.image_url && (
                   <button
                     onClick={() => setUploadCard(selectedCard)}
-                    className="mt-3 w-full rounded-xl py-2 text-[12px] font-semibold text-[var(--gold-600)] transition hover:bg-[rgba(200,155,60,0.06)]"
+                    className="mt-2 w-full rounded-xl py-2 text-[12px] font-semibold text-[var(--gold-600)] transition hover:bg-[rgba(200,155,60,0.06)]"
                     style={{ border: "1px solid rgba(200,155,60,0.25)" }}
                   >
-                    Upload a photo of this card
+                    Upload a photo
                   </button>
                 )}
               </div>
@@ -512,26 +655,20 @@ export function BinderView() {
               <div className="grid grid-cols-2 gap-2 px-4 pb-4">
                 <div className="rounded-xl p-2.5" style={{ background: "rgba(0,0,0,0.03)", border: "1px solid var(--vault-border)" }}>
                   <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-[rgba(28,25,23,0.4)]">Status</p>
-                  <p className={`mt-0.5 text-[12px] font-bold ${selectedCard.owned ? "text-green-700" : "text-[rgba(28,25,23,0.5)]"}`}>
-                    {selectedCard.owned ? "In Stock" : "Missing"}
+                  <p className={`mt-0.5 text-[12px] font-bold ${selectedCard.collected ? "text-green-700" : "text-[rgba(28,25,23,0.5)]"}`}>
+                    {selectedCard.collected ? "Collected" : "Not collected"}
                   </p>
                 </div>
                 <div className="rounded-xl p-2.5" style={{ background: "rgba(0,0,0,0.03)", border: "1px solid var(--vault-border)" }}>
                   <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-[rgba(28,25,23,0.4)]">Parallel</p>
                   <p className="mt-0.5 truncate text-[12px] font-bold text-[#1c1917]">{selectedCard.parallel || "Base"}</p>
                 </div>
-                {selectedCard.owned && (
-                  <div className="rounded-xl p-2.5" style={{ background: "rgba(0,0,0,0.03)", border: "1px solid var(--vault-border)" }}>
-                    <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-[rgba(28,25,23,0.4)]">Stock</p>
-                    <p className="mt-0.5 text-[12px] font-bold text-[#1c1917]">{selectedCard.stock}</p>
-                  </div>
-                )}
               </div>
             </aside>
           ) : (
             <div className="flex h-full min-h-[280px] flex-col items-center justify-center rounded-2xl p-8 text-center" style={{ background: "var(--vault-surface)", border: "1px solid var(--vault-border)" }}>
               <p className="font-bold text-[#1c1917]">Select a card</p>
-              <p className="mt-1 text-[12px] text-[rgba(28,25,23,0.5)]">Click any pocket to inspect it</p>
+              <p className="mt-1 text-[12px] text-[rgba(28,25,23,0.5)]">Tap any card to mark it as collected</p>
             </div>
           )}
         </div>

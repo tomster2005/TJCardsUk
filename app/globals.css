@@ -457,6 +457,7 @@ body {
     url("data:image/svg+xml,%3Csvg width='100' height='100' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E"),
     linear-gradient(160deg, #faf8f4 0%, #f5f1e8 60%, #efe9de 100%);
   box-shadow: inset 0 0 20px rgba(0,0,0,0.04);
+  overflow: hidden;
 }
 .pocket-empty {
   background: linear-gradient(135deg, rgba(248,244,236,0.6), rgba(240,235,224,0.4));
@@ -606,4 +607,15 @@ button:focus-visible, a:focus-visible {
 .pocket-filled:nth-child(9) { transform: rotate(-0.2deg); }
 .pocket-filled:hover {
   transform: translateY(-4px) scale(1.04) rotate(0deg) !important;
+}
+
+/* Flipbook styling */
+.binder-flipbook {
+  margin: 0 auto;
+}
+.binder-flipbook .stf__parent {
+  margin: 0 auto;
+}
+.binder-flipbook .stf__wrapper {
+  margin: 0 auto !important;
 }

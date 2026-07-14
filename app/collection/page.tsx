@@ -2,6 +2,7 @@
 
 import { Layout } from "@/components/Layout";
 import { useAuth } from "@/contexts/AuthContext";
+import { EmptyState } from "@/components/EmptyState";
 import type { CollectionEntry, CollectionSort } from "@/lib/collection/types";
 import { computeCollectionStats } from "@/lib/collection/stats";
 import getBrowserSupabase from "@/lib/supabase/client";
@@ -120,7 +121,7 @@ export default function CollectionPage() {
           <div className="absolute inset-0" style={{ background: "radial-gradient(ellipse 60% 50% at 20% -10%, rgba(22,163,74,0.1), transparent)" }} />
           <div className="absolute inset-0" style={{ background: "radial-gradient(ellipse 50% 60% at 90% 110%, rgba(200,155,60,0.08), transparent)" }} />
 
-          <div className="relative p-8 sm:p-12">
+          <div className="relative p-5 sm:p-8 lg:p-12">
             <div className="flex flex-wrap items-start justify-between gap-6">
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
@@ -145,7 +146,7 @@ export default function CollectionPage() {
             </div>
 
             {!loading && !isLoading && user && (
-              <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="mt-6 grid grid-cols-2 gap-3 sm:mt-8 sm:grid-cols-4">
                 {[
                   { label: "Total Cards", value: stats.totalCards, color: "text-zinc-900" },
                   { label: "Unique", value: stats.uniqueCards, color: "text-[#15803d]" },
@@ -190,19 +191,19 @@ export default function CollectionPage() {
         {!loading && !isLoading && user && !loadError && (
           <>
             {/* Filters */}
-            <div className="flex flex-wrap items-center gap-3 rounded-2xl p-4 bg-white" style={{ border: "1px solid rgba(0,0,0,0.08)" }}>
+            <div className="flex flex-wrap items-center gap-3 rounded-2xl p-3 bg-white sm:p-4" style={{ border: "1px solid rgba(0,0,0,0.08)" }}>
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search player, set..."
-                className="min-w-[200px] flex-1 rounded-xl py-2.5 pl-4 pr-4 text-sm text-zinc-800 outline-none placeholder:text-zinc-400 transition bg-[#fafaf9]"
+                className="w-full rounded-xl py-2.5 pl-4 pr-4 text-sm text-zinc-800 outline-none placeholder:text-zinc-400 transition bg-[#fafaf9] sm:min-w-[200px] sm:w-auto sm:flex-1"
                 style={{ border: "1px solid rgba(0,0,0,0.1)" }}
               />
-              <select value={setFilter} onChange={(e) => setSetFilter(e.target.value)} className="rounded-xl px-3 py-2.5 text-sm text-zinc-700 outline-none bg-[#fafaf9]" style={{ border: "1px solid rgba(0,0,0,0.1)" }}>
+              <select value={setFilter} onChange={(e) => setSetFilter(e.target.value)} className="flex-1 rounded-xl px-3 py-2.5 text-sm text-zinc-700 outline-none bg-[#fafaf9] sm:flex-none" style={{ border: "1px solid rgba(0,0,0,0.1)" }}>
                 <option value="all">All sets</option>
                 {filterOptions.sets.map((v) => <option key={v} value={v}>{v}</option>)}
               </select>
-              <select value={sortBy} onChange={(e) => setSortBy(e.target.value as CollectionSort)} className="rounded-xl px-3 py-2.5 text-sm text-zinc-700 outline-none bg-[#fafaf9]" style={{ border: "1px solid rgba(0,0,0,0.1)" }}>
+              <select value={sortBy} onChange={(e) => setSortBy(e.target.value as CollectionSort)} className="flex-1 rounded-xl px-3 py-2.5 text-sm text-zinc-700 outline-none bg-[#fafaf9] sm:flex-none" style={{ border: "1px solid rgba(0,0,0,0.1)" }}>
                 <option value="dateAddedDesc">Newest first</option>
                 <option value="dateAddedAsc">Oldest first</option>
                 <option value="valueHigh">Highest value</option>
@@ -220,11 +221,15 @@ export default function CollectionPage() {
 
             {/* Empty */}
             {pagedEntries.length === 0 && (
-              <div className="rounded-3xl p-16 text-center bg-white" style={{ border: "1px solid rgba(0,0,0,0.08)" }}>
-                <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl text-3xl bg-[#fafaf9]" style={{ border: "1px solid rgba(0,0,0,0.07)" }}>🔍</div>
-                <p className="text-lg font-black text-zinc-700">No cards found</p>
-                <Link href="/catalogue" className="mt-5 inline-flex rounded-full border border-[rgba(200,155,60,0.3)] bg-[rgba(200,155,60,0.08)] px-5 py-2.5 text-sm font-bold text-[#92400e] transition hover:bg-[rgba(200,155,60,0.14)]">Browse catalogue →</Link>
-              </div>
+              <EmptyState
+                icon="🏰"
+                title="Your vault is empty"
+                description="Start building your collection by browsing the catalogue and adding cards."
+                actions={[
+                  { label: "Browse catalogue", href: "/catalogue", primary: true },
+                  { label: "Open binder", href: "/binder" },
+                ]}
+              />
             )}
 
             {/* Grid */}
@@ -272,7 +277,7 @@ export default function CollectionPage() {
 
             {/* List */}
             {viewMode === "list" && pagedEntries.length > 0 && (
-              <div className="overflow-hidden rounded-2xl bg-white" style={{ border: "1px solid rgba(0,0,0,0.08)" }}>
+              <div className="overflow-x-auto rounded-2xl bg-white" style={{ border: "1px solid rgba(0,0,0,0.08)" }}>
                 <table className="w-full text-sm">
                   <thead style={{ borderBottom: "1px solid rgba(0,0,0,0.07)", background: "#fafaf9" }}>
                     <tr className="text-left text-[10px] font-bold uppercase tracking-[0.15em] text-zinc-400">

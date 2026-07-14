@@ -142,7 +142,7 @@ export default function DashboardPage() {
           <div className="pointer-events-none absolute -top-20 right-0 h-80 w-80 rounded-full opacity-40" style={{ background: "radial-gradient(circle, rgba(200,155,60,0.15), transparent 70%)" }} />
           <div className="pointer-events-none absolute -bottom-10 -left-10 h-60 w-60 rounded-full opacity-30" style={{ background: "radial-gradient(circle, rgba(22,163,74,0.1), transparent 70%)" }} />
 
-          <div className="relative grid items-center gap-10 p-8 lg:grid-cols-[1fr_280px] lg:p-12">
+          <div className="relative grid items-center gap-8 p-5 sm:p-8 lg:grid-cols-[1fr_280px] lg:p-12">
 
             {/* Left */}
             <div className="space-y-6">
@@ -154,7 +154,7 @@ export default function DashboardPage() {
                 <span className="text-[10px] font-semibold uppercase tracking-[0.3em] text-zinc-400">Vault active</span>
               </div>
 
-              <h1 className="text-4xl font-black tracking-tight text-zinc-900 sm:text-5xl font-display" style={{ lineHeight: 1.1 }}>
+              <h1 className="text-3xl font-black tracking-tight text-zinc-900 sm:text-4xl lg:text-5xl font-display" style={{ lineHeight: 1.1 }}>
                 Every card.<br />
                 <span className="text-gold">Every moment.</span><br />
                 <span className="text-zinc-300">Preserved.</span>
@@ -165,7 +165,7 @@ export default function DashboardPage() {
               </p>
 
               {/* Stats with coloured left accents */}
-              <div className="grid grid-cols-4 gap-3 pt-2">
+              <div className="grid grid-cols-2 gap-3 pt-2 sm:grid-cols-4">
                 {[
                   { label: "Owned", value: summary.ownedCount, accent: "#16a34a", color: "text-emerald-700" },
                   { label: "Wishlist", value: summary.wishlistCount, accent: "#ea580c", color: "text-orange-600" },
@@ -194,7 +194,7 @@ export default function DashboardPage() {
             </div>
 
             {/* Right — featured card */}
-            <div className="flex flex-col items-center gap-5 animate-fade-up" style={{ animationDelay: "120ms" }}>
+            <div className="hidden flex-col items-center gap-5 animate-fade-up lg:flex" style={{ animationDelay: "120ms" }}>
               {featuredCard && (
                 <div className="relative">
                   {/* Glow behind card */}
@@ -256,16 +256,17 @@ export default function DashboardPage() {
           </div>
 
           {/* Bottom strip — categories */}
-          <div className="flex border-t border-[rgba(0,0,0,0.05)]">
-            <Link href="/catalogue" className="group flex flex-1 items-center gap-3 px-8 py-4 transition hover:bg-white/50">
+          <div className="flex flex-col border-t border-[rgba(0,0,0,0.05)] sm:flex-row">
+            <Link href="/catalogue" className="group flex flex-1 items-center gap-3 px-5 py-4 transition hover:bg-white/50 sm:px-8">
               <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-sm shadow-sm">⚽</span>
               <div>
                 <p className="text-[12px] font-semibold text-zinc-700 group-hover:text-zinc-900">Football Cards</p>
                 <p className="text-[10px] text-zinc-400">Premier League · La Liga · UCL</p>
               </div>
             </Link>
-            <div className="w-px bg-[rgba(0,0,0,0.05)]" />
-            <Link href="/catalogue" className="group flex flex-1 items-center gap-3 px-8 py-4 transition hover:bg-white/50">
+            <div className="hidden w-px bg-[rgba(0,0,0,0.05)] sm:block" />
+            <div className="h-px bg-[rgba(0,0,0,0.05)] sm:hidden" />
+            <Link href="/catalogue" className="group flex flex-1 items-center gap-3 px-5 py-4 transition hover:bg-white/50 sm:px-8">
               <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-sm shadow-sm">✨</span>
               <div>
                 <p className="text-[12px] font-semibold text-zinc-700 group-hover:text-zinc-900">Disney Cards</p>

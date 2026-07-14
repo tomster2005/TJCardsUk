@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState, useEffect, useRef } from "react";
 import getBrowserSupabase from "@/lib/supabase/client";
+import { EmptyState } from "@/components/EmptyState";
 import { buildPublicCardPath, buildPublicCardSlugs } from "@/lib/cards/slug";
 import type { CatalogueCard } from "@/lib/demo-data/catalogue";
 import { useCart } from "@/contexts/CartContext";
@@ -187,14 +188,12 @@ export function CatalogueGrid() {
 
       {/* ══ EMPTY ═══════════════════════════════════════════════════════ */}
       {!isLoading && !loadError && visibleCards.length === 0 && (
-        <div className="rounded-3xl border border-[rgba(0,0,0,0.08)] bg-white p-16 text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl text-3xl bg-[#fafaf9]" style={{ border: "1px solid rgba(0,0,0,0.07)" }}>🔍</div>
-          <p className="text-lg font-bold text-zinc-700">No cards found</p>
-          <p className="mt-2 text-sm text-zinc-400">Try adjusting your search or filters</p>
-          <button type="button" onClick={() => { setQuery(""); setSetFilter("all"); setTeamFilter("all"); setInStockOnly(false); }} className="mt-5 rounded-full border border-[rgba(200,155,60,0.3)] bg-[rgba(200,155,60,0.08)] px-5 py-2.5 text-sm font-semibold text-[#92400e] transition hover:bg-[rgba(200,155,60,0.14)]">
-            Clear filters
-          </button>
-        </div>
+        <EmptyState
+          icon="🔍"
+          title="No cards match your search"
+          description="Try different keywords or clear your filters to see everything in the vault."
+          actions={[{ label: "Browse all cards", href: "/catalogue", primary: true }]}
+        />
       )}
 
       {/* ══ CARD GRID ═══════════════════════════════════════════════════ */}

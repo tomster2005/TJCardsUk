@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { Layout } from "@/components/Layout";
+import { EmptyState } from "@/components/EmptyState";
 import { useCart } from "@/contexts/CartContext";
 import { formatGBP } from "@/lib/currency";
 
@@ -27,9 +28,7 @@ export default function CartPage() {
 
     const response = await fetch("/api/sumup/checkout", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         amount: grandTotal,
         currency: "GBP",
@@ -55,92 +54,91 @@ export default function CartPage() {
 
   return (
     <Layout>
-      <section className="relative overflow-hidden rounded-[2rem] p-10 shadow-[0_20px_48px_rgba(15,23,42,0.09)]">
-        <div className="pointer-events-none absolute inset-0 rounded-[2rem] border border-slate-300/55 bg-gradient-to-r from-white/86 via-[#fcfaf3]/92 to-white/86" />
+      <div className="mx-auto max-w-5xl space-y-8 animate-fade-up">
 
-        <div className="relative flex flex-wrap items-start justify-between gap-6">
-          <div className="space-y-3">
-            <p className="text-xs uppercase tracking-[0.34em] text-amber-700">Cart</p>
-            <h1 className="text-4xl font-semibold text-zinc-900 sm:text-5xl">Review your lineup</h1>
-            <p className="max-w-2xl text-zinc-600">
-              A polished pre-checkout cart experience. Adjust quantities, remove cards, and review your estimated total before payments go live.
+        {/* Header */}
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <span className="text-[11px] font-bold uppercase tracking-[0.3em] text-[var(--gold-500)]">Cart</span>
+            <h1 className="mt-1 text-3xl font-black text-zinc-900 font-display">Your Order</h1>
+            <p className="mt-0.5 text-[13px] text-zinc-500">
+              {itemCount > 0 ? `${itemCount} item${itemCount > 1 ? "s" : ""} ready for checkout` : "Nothing in your cart yet"}
             </p>
           </div>
 
-          <div className="rounded-2xl border border-slate-300/60 bg-white/90 px-5 py-4 text-right shadow-[0_12px_26px_rgba(15,23,42,0.08)]">
-            <p className="text-xs uppercase tracking-[0.25em] text-zinc-500">Items</p>
-            <p className="mt-1 text-2xl font-semibold text-zinc-900">{itemCount}</p>
-            <p className="mt-3 text-xs uppercase tracking-[0.25em] text-zinc-500">Subtotal</p>
-            <p className="mt-1 text-2xl font-semibold text-amber-700">{formatGBP(subtotal)}</p>
-          </div>
+          {itemCount > 0 && (
+            <div className="flex items-center gap-4">
+              <div className="text-right">
+                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-400">Subtotal</p>
+                <p className="text-2xl font-black text-zinc-900">{formatGBP(subtotal)}</p>
+              </div>
+            </div>
+          )}
         </div>
 
+        {/* Empty state */}
         {items.length === 0 ? (
-          <div className="relative mt-8 rounded-[1.5rem] border border-slate-300/60 bg-white/85 p-8 text-center">
-            <p className="text-lg font-semibold text-zinc-900">Your cart is empty</p>
-            <p className="mt-2 text-zinc-600">Browse the catalogue and add cards to get started.</p>
-            <div className="mt-5 flex justify-center gap-3">
-              <Link
-                href="/catalogue"
-                className="inline-flex rounded-full border border-amber-400/40 bg-amber-100/90 px-5 py-2.5 text-sm font-semibold text-amber-900 transition hover:bg-amber-200/80"
-              >
-                Browse catalogue
-              </Link>
-              <Link
-                href="/dashboard"
-                className="inline-flex rounded-full border border-slate-300/70 bg-white px-5 py-2.5 text-sm font-semibold text-zinc-800 transition hover:bg-slate-50"
-              >
-                Back to dashboard
-              </Link>
-            </div>
-          </div>
+          <EmptyState
+            icon="🛒"
+            title="Your cart is empty"
+            description="Browse the vault and add some cards to your cart. Your next grail is waiting."
+            actions={[
+              { label: "Browse catalogue", href: "/catalogue", primary: true },
+              { label: "Back to dashboard", href: "/dashboard" },
+            ]}
+          />
         ) : (
-          <div className="relative mt-8 grid gap-6 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,0.7fr)]">
-            <div className="space-y-4">
+          <div className="grid gap-6 xl:grid-cols-[1fr_320px]">
+
+            {/* Items */}
+            <div className="space-y-3">
               {items.map((item) => (
                 <article
                   key={item.id}
-                  className="animate-page-enter rounded-3xl border border-slate-300/60 bg-white/92 p-5 shadow-[0_12px_26px_rgba(15,23,42,0.08)]"
+                  className="overflow-hidden rounded-2xl transition-all duration-200 hover:-translate-y-0.5"
+                  style={{ background: "linear-gradient(145deg, #fffdf8, #faf5ed)", border: "1px solid rgba(200,155,60,0.12)", boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}
                 >
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex items-center gap-4">
-                      <div className="h-24 w-16 overflow-hidden rounded-xl border border-slate-300/70 bg-slate-100">
+                      <div className="h-24 w-16 flex-shrink-0 overflow-hidden rounded-xl" style={{ background: "rgba(200,155,60,0.06)", border: "1px solid rgba(200,155,60,0.15)" }}>
                         {item.imageUrl ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img src={item.imageUrl} alt={`${item.playerName} #${item.cardNumber}`} className="h-full w-full object-cover" />
                         ) : (
-                          <div className="flex h-full items-center justify-center text-xs text-zinc-500">No image</div>
+                          <div className="flex h-full items-center justify-center text-2xl opacity-20">🃏</div>
                         )}
                       </div>
 
                       <div>
-                        <p className="text-lg font-semibold text-zinc-900">{item.playerName}</p>
-                        <p className="text-sm text-zinc-600">Card #{item.cardNumber}</p>
-                        <p className="mt-1 text-sm font-medium text-amber-700">{formatGBP(item.price)} each</p>
+                        <p className="text-[15px] font-black text-zinc-900">{item.playerName}</p>
+                        <p className="text-[12px] text-zinc-500">Card #{item.cardNumber}</p>
+                        <p className="mt-1 text-[13px] font-bold text-[var(--gold-600)]">{formatGBP(item.price)} each</p>
                       </div>
                     </div>
 
                     <div className="text-left sm:text-right">
-                      <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Line total</p>
-                      <p className="mt-1 text-xl font-semibold text-zinc-900">{formatGBP(item.price * item.quantity)}</p>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-400">Line total</p>
+                      <p className="mt-0.5 text-xl font-black text-zinc-900">{formatGBP(item.price * item.quantity)}</p>
                     </div>
                   </div>
 
-                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex items-center justify-between border-t px-5 py-3" style={{ borderColor: "rgba(200,155,60,0.1)", background: "rgba(200,155,60,0.03)" }}>
+                    <div className="flex items-center gap-2">
                       <button
                         type="button"
                         onClick={() => decreaseQuantity(item.cardId)}
-                        className="rounded-full border border-slate-300/80 bg-white px-3 py-1.5 text-sm font-semibold text-zinc-700 transition hover:bg-slate-100"
+                        className="flex h-8 w-8 items-center justify-center rounded-lg text-sm font-bold text-zinc-600 transition hover:bg-white"
+                        style={{ border: "1px solid rgba(0,0,0,0.1)" }}
                       >
-                        -
+                        −
                       </button>
-                      <span className="min-w-10 text-center text-sm font-semibold text-zinc-900">{item.quantity}</span>
+                      <span className="min-w-8 text-center text-[13px] font-black text-zinc-900">{item.quantity}</span>
                       <button
                         type="button"
                         onClick={() => increaseQuantity(item.cardId)}
                         disabled={typeof item.availableQuantity === "number" && item.quantity >= item.availableQuantity}
-                        className="rounded-full border border-slate-300/80 bg-white px-3 py-1.5 text-sm font-semibold text-zinc-700 transition hover:bg-slate-100"
+                        className="flex h-8 w-8 items-center justify-center rounded-lg text-sm font-bold text-zinc-600 transition hover:bg-white disabled:opacity-40"
+                        style={{ border: "1px solid rgba(0,0,0,0.1)" }}
                       >
                         +
                       </button>
@@ -149,7 +147,7 @@ export default function CartPage() {
                     <button
                       type="button"
                       onClick={() => removeFromCart(item.cardId)}
-                      className="rounded-full border border-rose-300/60 bg-rose-100/80 px-3 py-1.5 text-sm font-semibold text-rose-800 transition hover:bg-rose-200/80"
+                      className="rounded-lg px-3 py-1.5 text-[12px] font-semibold text-rose-600 transition hover:bg-rose-50"
                     >
                       Remove
                     </button>
@@ -157,65 +155,69 @@ export default function CartPage() {
                 </article>
               ))}
 
-              <div className="flex justify-between gap-3">
+              <div className="flex justify-between gap-3 pt-2">
                 <Link
                   href="/catalogue"
-                  className="inline-flex rounded-full border border-slate-300/70 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 transition hover:bg-slate-50"
+                  className="rounded-full border border-[rgba(0,0,0,0.1)] bg-white px-5 py-2.5 text-[13px] font-semibold text-zinc-600 transition hover:text-zinc-900"
                 >
                   Continue shopping
                 </Link>
                 <button
                   type="button"
                   onClick={clearCart}
-                  className="rounded-full border border-slate-300/70 bg-slate-100/80 px-4 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-slate-200/80"
+                  className="rounded-full px-5 py-2.5 text-[13px] font-semibold text-zinc-400 transition hover:text-rose-600"
                 >
                   Clear cart
                 </button>
               </div>
             </div>
 
-            <aside className="h-fit rounded-3xl border border-slate-300/60 bg-white/94 p-5 shadow-[0_16px_34px_rgba(15,23,42,0.1)] xl:sticky xl:top-24">
-              <p className="text-xs uppercase tracking-[0.26em] text-zinc-500">Order summary</p>
+            {/* Order summary */}
+            <aside className="h-fit rounded-2xl xl:sticky xl:top-24" style={{ background: "linear-gradient(145deg, #fffdf8, #faf5ed)", border: "1px solid rgba(200,155,60,0.15)", boxShadow: "0 8px 32px rgba(0,0,0,0.06)" }}>
+              <div className="p-5">
+                <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-[var(--gold-500)]">Order Summary</p>
 
-              <dl className="mt-4 space-y-3 text-sm text-zinc-700">
-                <div className="flex items-center justify-between">
-                  <dt>Subtotal</dt>
-                  <dd className="font-semibold text-zinc-900">{formatGBP(subtotal)}</dd>
-                </div>
-                <div className="flex items-center justify-between">
-                  <dt>Tax</dt>
-                  <dd className="font-semibold text-zinc-900">{formatGBP(estimatedTax)}</dd>
-                </div>
-                <div className="flex items-center justify-between">
-                  <dt>Shipping</dt>
-                  <dd className="font-semibold text-zinc-900">Calculated at checkout</dd>
-                </div>
-                <div className="my-1 border-t border-slate-200" />
-                <div className="flex items-center justify-between text-base">
-                  <dt className="font-semibold text-zinc-900">Total</dt>
-                  <dd className="font-semibold text-amber-700">{formatGBP(grandTotal)}</dd>
-                </div>
-              </dl>
+                <dl className="mt-4 space-y-3 text-[13px] text-zinc-600">
+                  <div className="flex items-center justify-between">
+                    <dt>Subtotal</dt>
+                    <dd className="font-bold text-zinc-900">{formatGBP(subtotal)}</dd>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <dt>Tax</dt>
+                    <dd className="font-bold text-zinc-900">{formatGBP(estimatedTax)}</dd>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <dt>Shipping</dt>
+                    <dd className="text-[12px] text-zinc-400">At checkout</dd>
+                  </div>
+                  <div className="border-t" style={{ borderColor: "rgba(200,155,60,0.15)" }} />
+                  <div className="flex items-center justify-between text-base">
+                    <dt className="font-black text-zinc-900">Total</dt>
+                    <dd className="font-black text-zinc-900">{formatGBP(grandTotal)}</dd>
+                  </div>
+                </dl>
 
-              <button
-                type="button"
-                onClick={() => void handleStartSumUpCheckout()}
-                disabled={isStartingCheckout}
-                className="mt-5 w-full rounded-full border border-emerald-300/70 bg-emerald-100/90 px-4 py-3 text-sm font-semibold text-emerald-900 transition hover:bg-emerald-200/90 disabled:cursor-not-allowed disabled:opacity-70"
-                title="Pay securely with SumUp"
-              >
-                {isStartingCheckout ? "Opening SumUp..." : "Pay with SumUp"}
-              </button>
+                <button
+                  type="button"
+                  onClick={() => void handleStartSumUpCheckout()}
+                  disabled={isStartingCheckout}
+                  className="btn-gold mt-5 w-full rounded-full py-3 text-[13px] font-bold disabled:opacity-50"
+                >
+                  {isStartingCheckout ? "Opening SumUp..." : "Checkout"}
+                </button>
 
-              {checkoutError ? <p className="mt-3 rounded-xl border border-rose-300/60 bg-rose-100/80 p-2.5 text-xs text-rose-900">{checkoutError}</p> : null}
+                {checkoutError && (
+                  <p className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-[12px] text-rose-700 border border-rose-200">{checkoutError}</p>
+                )}
 
-              <p className="mt-3 text-xs text-zinc-500">
-                Prices are in GBP. Tax is 0. Shipping is calculated during checkout after address entry.
-              </p>
+                <p className="mt-3 text-[11px] text-zinc-400 text-center">
+                  Secure payment via SumUp · Prices in GBP
+                </p>
+              </div>
             </aside>
           </div>
         )}
-      </section>
+      </div>
     </Layout>
   );
 }
