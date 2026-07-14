@@ -18,6 +18,7 @@ export default function AdminBindersPage() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [combineNames, setCombineNames] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -52,7 +53,19 @@ export default function AdminBindersPage() {
       if (!supabase) throw new Error("No supabase client");
 
       // Parse CSV/TSV
-      const text = await csvFile.text();
+      let text: string;
+      try {
+        // Try UTF-8 first
+        text = await csvFile.text();
+        // If we see replacement characters, try Windows-1252
+        if (text.includes("\uFFFD")) {
+          const buffer = await csvFile.arrayBuffer();
+          const decoder = new TextDecoder("windows-1252");
+          text = decoder.decode(buffer);
+        }
+      } catch {
+        text = await csvFile.text();
+      }
       const lines = text.split(/\r?\n/).filter((l) => l.trim());
 
       // Detect separator: tab or comma
@@ -88,15 +101,18 @@ export default function AdminBindersPage() {
 
       if (setError) throw setError;
 
-      // Parse rows - handle trailing commas and whitespace
+      // Parse rows - handle trailing commas, quotes, and whitespace
       const checklistRows = dataLines.map((line, i) => {
-        const cols = line.split(separator).map((c) => c.trim().replace(/,$/, ""));
+        const cols = line.split(separator).map((c) => c.trim().replace(/,$/, "").replace(/^"|"$/g, "").trim());
+        const playerName = combineNames && cols[2]
+          ? `${cols[1] || ""} & ${cols[2]}`.trim()
+          : cols[1] || "Unknown";
         return {
           set_id: binderSet.id,
           card_number: cols[0] || String(i + 1),
-          player_name: cols[1] || "Unknown",
-          team: cols[2] || null,
-          parallel: cols[3] || "Base",
+          player_name: playerName,
+          team: combineNames ? null : (cols[2] || null),
+          parallel: (combineNames ? cols[3] : cols[3]) || "Base",
           page_number: Math.floor(i / 9) + 1,
           position: (i % 9) + 1,
         };
@@ -176,6 +192,19 @@ export default function AdminBindersPage() {
             className="mt-1 w-full text-sm"
             required
           />
+        </div>
+
+        <div className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            id="combineNames"
+            checked={combineNames}
+            onChange={(e) => setCombineNames(e.target.checked)}
+            className="h-4 w-4 rounded border-slate-300 accent-amber-500"
+          />
+          <label htmlFor="combineNames" className="text-sm text-[#1c1917]">
+            Combine columns B &amp; C as player name <span className="text-xs text-[rgba(28,25,23,0.4)]">(for insert sets where column C is a second character, not a team)</span>
+          </label>
         </div>
 
         <button

@@ -48,7 +48,6 @@ export function SiteNav() {
 
   const secondaryNav = [
     { href: "/discover", label: "Discover", desc: "Explore sets & players" },
-    { href: "/wishlist", label: "Wishlist", desc: "Cards you're hunting" },
     { href: "/missing-cards", label: "Missing", desc: "Complete your sets" },
     { href: "/profile", label: "Profile", desc: "Your collector identity" },
     ...(isAdmin ? [{ href: "/admin", label: "Admin", desc: "Manage the vault" }] : []),

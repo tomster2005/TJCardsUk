@@ -30,10 +30,11 @@ type ChecklistCard = {
   collected: boolean;
 };
 
-function PocketCell({ card, isActive, onSelect }: {
+function PocketCell({ card, isActive, onSelect, onToggleCollected }: {
   card: ChecklistCard;
   isActive: boolean;
   onSelect: () => void;
+  onToggleCollected: () => void;
 }) {
   const hasImage = card.image_url || card.community_image;
   const displayImage = card.image_url || card.community_image;
@@ -41,7 +42,7 @@ function PocketCell({ card, isActive, onSelect }: {
   return (
     <button
       type="button"
-      onClick={onSelect}
+      onClick={onToggleCollected}
       className={`relative aspect-[2.5/3.5] min-h-[85px] w-full overflow-hidden rounded-lg transition-all duration-280 focus:outline-none ${
         !hasImage ? "pocket-empty" : "pocket-filled"
       }`}
@@ -91,7 +92,8 @@ const BinderPage = forwardRef<HTMLDivElement, {
   collectedOnPage: number;
   selectedCard: ChecklistCard | null;
   onSelectCard: (card: ChecklistCard | null) => void;
-}>(({ pageNum, totalPages, cards, collectedOnPage, selectedCard, onSelectCard }, ref) => (
+  onToggleCollected: (card: ChecklistCard) => void;
+}>(({ pageNum, totalPages, cards, collectedOnPage, selectedCard, onSelectCard, onToggleCollected }, ref) => (
   <div ref={ref} className="binder-page h-full p-5 pb-8" style={{ background: "#f5f0e8" }}>
     <div className="mb-3 flex items-center justify-between">
       <p className="text-[9px] font-bold uppercase tracking-[0.25em] text-[rgba(100,100,100,0.7)]">Page {pageNum} of {totalPages}</p>
@@ -104,6 +106,7 @@ const BinderPage = forwardRef<HTMLDivElement, {
           card={card}
           isActive={card.id === selectedCard?.id}
           onSelect={() => onSelectCard(card.id === selectedCard?.id ? null : card)}
+          onToggleCollected={() => onToggleCollected(card)}
         />
       ))}
       {cards.length === 0 && (
@@ -334,25 +337,23 @@ export function BinderView() {
   async function toggleCollected(card: ChecklistCard) {
     if (!user || toggling) return;
     setToggling(true);
+    setSelectedCard(card);
 
     const supabase = getBrowserSupabase();
     if (!supabase) { setToggling(false); return; }
 
     if (card.collected) {
-      // Remove
       await supabase
         .from("user_binder_progress")
         .delete()
         .eq("user_id", user.id)
         .eq("checklist_id", card.id);
     } else {
-      // Add
       await supabase
         .from("user_binder_progress")
         .insert({ user_id: user.id, checklist_id: card.id });
     }
 
-    // Update local state
     const updated = checklist.map((c) =>
       c.id === card.id ? { ...c, collected: !c.collected } : c
     );
@@ -563,6 +564,7 @@ export function BinderView() {
                   collectedOnPage={pageCards.filter((c) => c.collected).length}
                   selectedCard={selectedCard}
                   onSelectCard={setSelectedCard}
+                  onToggleCollected={toggleCollected}
                 />
               ))}
             </HTMLFlipBook>

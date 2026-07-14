@@ -5,7 +5,6 @@ import type {
   CollectionCard,
   Parallel,
   Player,
-  Rarity,
   Team,
   UserCollection,
   WishlistItem,
@@ -78,11 +77,6 @@ export const players: Player[] = [
   },
 ];
 
-export const rarities: Rarity[] = [
-  { id: "rarity-base", label: "Base", tier: 1, description: "Standard base card.", color: "#94a3b8" },
-  { id: "rarity-foil", label: "Foil", tier: 2, description: "Shiny foil parallel.", color: "#38bdf8" },
-  { id: "rarity-autograph", label: "Autograph", tier: 5, description: "Autographed card.", color: "#f97316" },
-];
 
 export const parallels: Parallel[] = [
   { id: "parallel-regular", name: "Regular", description: "Standard release.", color: "#94a3b8" },
@@ -116,7 +110,6 @@ export const cards: Card[] = [
     season: "2023-24",
     brandId: "brand-panini",
     productLine: "Chrome",
-    rarityId: "rarity-foil",
     parallelId: "parallel-silver",
     serialNumber: "123/299",
     autograph: false,
@@ -135,7 +128,6 @@ export const cards: Card[] = [
     season: "2023-24",
     brandId: "brand-panini",
     productLine: "Chrome",
-    rarityId: "rarity-base",
     parallelId: "parallel-regular",
     serialNumber: "",
     autograph: false,

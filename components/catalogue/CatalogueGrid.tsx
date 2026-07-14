@@ -49,7 +49,7 @@ export function CatalogueGrid() {
         return {
           id: d.id, playerName: d.player ?? "Unknown", cardNumber: cardNumber || "?",
           availableQuantity, team: d.team ?? "", setName, brand: d.brand ?? "",
-          rarity: d.rarity ?? "", price: Number(d.price ?? 0),
+          price: Number(d.price ?? 0),
           stockStatus: d.stock_status ?? (availableQuantity === undefined ? "In stock" : availableQuantity > 0 ? "In stock" : "Out of stock"),
           imageUrl: d.image_url ?? d.imageUrl, backImageUrl: d.back_image_url ?? d.backImageUrl,
           description: d.description ?? "", season: d.season ?? "", condition: d.condition ?? "",

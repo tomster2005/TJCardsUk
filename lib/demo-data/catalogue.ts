@@ -7,7 +7,6 @@ export type CatalogueCard = {
   setName: string;
   brand: string;
   parallel: string;
-  rarity: string;
   price: number;
   stockStatus: "In stock" | "Low stock" | "Out of stock";
   imageUrl?: string;
@@ -19,7 +18,6 @@ export type CatalogueCard = {
   marketplacePrice: number;
   printRun?: string | number;
   population: number;
-  isRare: boolean;
   isOneOfOne: boolean;
 };
 

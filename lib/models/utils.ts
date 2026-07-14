@@ -12,7 +12,6 @@ export type CardFilter = {
   teamId?: string;
   brandId?: string;
   setId?: string;
-  rarityId?: string;
   parallelId?: string;
   status?: "owned" | "missing" | "wishlist";
 };
@@ -70,7 +69,6 @@ export function filterCards(cards: Card[], filter: CardFilter) {
     if (filter.teamId && card.teamId !== filter.teamId) return false;
     if (filter.brandId && card.brandId !== filter.brandId) return false;
     if (filter.setId && card.setId !== filter.setId) return false;
-    if (filter.rarityId && card.rarityId !== filter.rarityId) return false;
     if (filter.parallelId && card.parallelId !== filter.parallelId) return false;
     return true;
   });
