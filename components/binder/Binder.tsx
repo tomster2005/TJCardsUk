@@ -74,7 +74,7 @@ function PocketCell({ card, isActive, onSelect, onToggleCollected }: {
             )}
           </div>
           {card.collected && (
-            <span className="absolute left-1 top-1 rounded-full bg-[rgba(34,197,94,0.9)] px-1.5 py-0.5 text-[7px] font-black text-white">✓</span>
+            <span className="absolute left-1 top-1 rounded-full bg-[rgba(34,197,94,0.9)] px-1.5 py-0.5 text-[7px] font-black text-white">âœ“</span>
           )}
           {!card.collected && card.stock > 0 && (
             <span className="absolute right-1 top-1 rounded-full px-1.5 py-0.5 text-[7px] font-black text-[#0d0d0f]" style={{ background: "linear-gradient(135deg, #f5d97a, #c89b3c)" }}>{card.stock}x</span>
@@ -390,7 +390,7 @@ export function BinderView() {
   if (sets.length === 0) {
     return (
       <EmptyState
-        icon="📖"
+        icon="ðŸ“–"
         title="No binders available yet"
         description="Binder sets are added by the admin. Check back soon for new sets to collect."
         actions={[
@@ -617,7 +617,47 @@ export function BinderView() {
         {/* Details panel */}
         <div>
           {selectedCard ? (
-            <aside className="overflow-hidden rounded-2xl" style={{ background: "var(--vault-surface)", border: "1px solid var(--vault-border-hi)", boxShadow: "var(--shadow-sm)" }}>
+            <>
+              {/* Mobile: bottom sheet */}
+              <div className="fixed inset-x-0 bottom-0 z-50 lg:hidden" style={{ animation: "slide-up 300ms cubic-bezier(0.22,1,0.36,1) both" }}>
+                <div className="rounded-t-3xl bg-white border-t border-[rgba(0,0,0,0.08)] shadow-[0_-8px_40px_rgba(0,0,0,0.15)] px-5 pt-4 pb-8">
+                  <div className="flex items-start justify-between mb-4">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-[var(--gold-500)]">Card Details</p>
+                      <h3 className="mt-0.5 text-base font-black text-[#1c1917]">{selectedCard.player_name}</h3>
+                      <p className="text-[12px] text-[rgba(28,25,23,0.5)]">#{selectedCard.card_number}{selectedCard.team ? ` - ${selectedCard.team}` : ""}</p>
+                    </div>
+                    <button onClick={() => setSelectedCard(null)} className="rounded-full p-2 text-zinc-400 hover:bg-zinc-100 -mt-1">
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+                    </button>
+                  </div>
+                  <div className="flex gap-2">
+                    {user && (
+                      <button
+                        onClick={() => toggleCollected(selectedCard)}
+                        disabled={toggling}
+                        className={`flex-1 rounded-xl py-3 text-[13px] font-bold disabled:opacity-50 ${
+                          selectedCard.collected ? "border border-red-200 text-red-600" : "btn-gold"
+                        }`}
+                      >
+                        {toggling ? "..." : selectedCard.collected ? "Remove" : "Mark collected"}
+                      </button>
+                    )}
+                    {user && !selectedCard.image_url && (
+                      <button
+                        onClick={() => setUploadCard(selectedCard)}
+                        className="flex-1 rounded-xl py-3 text-[13px] font-semibold text-[var(--gold-600)] border border-[rgba(200,155,60,0.25)]"
+                      >
+                        Upload photo
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <div className="fixed inset-0 z-40 bg-black/20 lg:hidden" onClick={() => setSelectedCard(null)} />
+
+              {/* Desktop: sidebar */}
+              <aside className="hidden lg:block overflow-hidden rounded-2xl" style={{ background: "var(--vault-surface)", border: "1px solid var(--vault-border-hi)", boxShadow: "var(--shadow-sm)" }}>
               <div className="px-5 py-4" style={{ borderBottom: "1px solid var(--vault-border)" }}>
                 <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-[var(--gold-500)]">Card Details</p>
                 <h3 className="mt-1 text-base font-black text-[#1c1917]">{selectedCard.player_name}</h3>
@@ -655,7 +695,7 @@ export function BinderView() {
                         : "btn-gold"
                     }`}
                   >
-                    {toggling ? "..." : selectedCard.collected ? "Remove from collection" : "Mark as collected ✓"}
+                    {toggling ? "..." : selectedCard.collected ? "Remove from collection" : "Mark as collected âœ“"}
                   </button>
                 )}
 
@@ -685,6 +725,7 @@ export function BinderView() {
                 </div>
               </div>
             </aside>
+            </>
           ) : (
             <div className="flex h-full min-h-[280px] flex-col items-center justify-center rounded-2xl p-8 text-center" style={{ background: "var(--vault-surface)", border: "1px solid var(--vault-border)" }}>
               <p className="font-bold text-[#1c1917]">Select a card</p>
