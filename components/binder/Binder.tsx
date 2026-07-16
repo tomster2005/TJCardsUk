@@ -42,8 +42,8 @@ function PocketCell({ card, isActive, onSelect, onToggleCollected }: {
   return (
     <button
       type="button"
-      onClick={onToggleCollected}
-      className={`relative aspect-[2.5/3.5] min-h-[85px] w-full overflow-hidden rounded-lg transition-all duration-280 focus:outline-none ${
+      onClick={onSelect}
+      className={`relative aspect-[2.5/3.5] min-h-[85px] w-full overflow-hidden rounded-lg transition-all duration-280 focus:outline-none touch-manipulation ${
         !hasImage ? "pocket-empty" : "pocket-filled"
       }`}
       style={isActive ? { outline: "2px solid #c89b3c", outlineOffset: "2px" } : {}}
@@ -632,7 +632,7 @@ export function BinderView() {
                     </button>
                   </div>
                   <div className="flex gap-2">
-                    {user && (
+                    {user ? (
                       <button
                         onClick={() => toggleCollected(selectedCard)}
                         disabled={toggling}
@@ -642,6 +642,10 @@ export function BinderView() {
                       >
                         {toggling ? "..." : selectedCard.collected ? "Remove" : "Mark collected"}
                       </button>
+                    ) : (
+                      <a href="/login" className="flex-1 rounded-xl py-3 text-center text-[13px] font-bold btn-gold">
+                        Sign in to collect
+                      </a>
                     )}
                     {user && !selectedCard.image_url && (
                       <button
