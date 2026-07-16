@@ -220,6 +220,7 @@ export function BinderView() {
   const [checklist, setChecklist] = useState<ChecklistCard[]>([]);
   const [selectedCard, setSelectedCard] = useState<ChecklistCard | null>(null);
   const [loading, setLoading] = useState(true);
+  const [checklistLoading, setChecklistLoading] = useState(false);
   const [uploadCard, setUploadCard] = useState<ChecklistCard | null>(null);
   const [currentPage, setCurrentPage] = useState(0);
   const [toggling, setToggling] = useState(false);
@@ -256,6 +257,7 @@ export function BinderView() {
     const supabase = getBrowserSupabase();
     if (!supabase) return;
 
+    setChecklistLoading(true);
     const activeSet = sets.find((s) => s.id === activeSetId);
 
     const { data: checklistData, error: checklistError } = await supabase
@@ -267,35 +269,37 @@ export function BinderView() {
 
     if (checklistError || !checklistData || checklistData.length === 0) {
       setChecklist([]);
+      setChecklistLoading(false);
       return;
     }
 
-    // Get user's collected progress
     const checklistIds = checklistData.map((c) => c.id);
-    let collectedSet = new Set<string>();
-    if (user) {
-      const { data: progressData } = await supabase
-        .from("user_binder_progress")
-        .select("checklist_id")
-        .eq("user_id", user.id)
-        .in("checklist_id", checklistIds);
-      if (progressData) {
-        collectedSet = new Set(progressData.map((p) => p.checklist_id));
-      }
-    }
 
-    // Get card images
-    const { data: cardsData } = await supabase
-      .from("cards")
-      .select("card_number, image_url, image_front, stock, set_name")
-      .eq("set_name", activeSet?.title || "");
+    // Run all remaining queries in parallel
+    const [progressResult, cardsResult, communityResult] = await Promise.all([
+      user
+        ? supabase
+            .from("user_binder_progress")
+            .select("checklist_id")
+            .eq("user_id", user.id)
+            .in("checklist_id", checklistIds)
+        : Promise.resolve({ data: null }),
+      supabase
+        .from("cards")
+        .select("card_number, image_url, image_front, stock, set_name")
+        .eq("set_name", activeSet?.title || ""),
+      supabase
+        .from("community_images")
+        .select("checklist_id, image_url, username")
+        .eq("status", "approved")
+        .in("checklist_id", checklistIds),
+    ]);
 
-    // Get approved community images
-    const { data: communityData } = await supabase
-      .from("community_images")
-      .select("checklist_id, image_url, username")
-      .eq("status", "approved")
-      .in("checklist_id", checklistIds);
+    const collectedSet = new Set<string>(
+      (progressResult.data ?? []).map((p: any) => p.checklist_id)
+    );
+    const cardsData = cardsResult.data;
+    const communityData = communityResult.data;
 
     const cardLookup = new Map<string, { image_url: string | null; stock: number }>();
     if (cardsData) {
@@ -332,6 +336,7 @@ export function BinderView() {
     setChecklist(merged);
     setSelectedCard(null);
     setCurrentPage(0);
+    setChecklistLoading(false);
   }
 
   async function toggleCollected(card: ChecklistCard) {
@@ -527,8 +532,12 @@ export function BinderView() {
         {/* Binder pages */}
         <div className="binder-cover mx-auto w-full rounded-2xl p-2 sm:rounded-3xl sm:p-3" style={{ boxShadow: "0 40px 100px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04)" }}>
 
-          {/* Mobile: simple page view */}
-          {isMobile ? (
+          {checklistLoading ? (
+            <div className="flex flex-col items-center justify-center gap-4 py-20">
+              <div className="h-10 w-10 animate-spin rounded-full border-4 border-[rgba(200,155,60,0.2)] border-t-[#c89b3c]" />
+              <p className="text-[12px] font-bold uppercase tracking-[0.25em] text-[rgba(200,155,60,0.6)]">Loading cards...</p>
+            </div>
+          ) : isMobile ? (
             <div className="rounded-[1.3rem] overflow-hidden">
               {pages[currentPage] && (
                 <BinderPage
@@ -620,14 +629,15 @@ export function BinderView() {
             <>
               {/* Mobile: bottom sheet */}
               <div className="fixed inset-x-0 bottom-0 z-50 lg:hidden" style={{ animation: "slide-up 300ms cubic-bezier(0.22,1,0.36,1) both" }}>
-                <div className="rounded-t-3xl bg-white border-t border-[rgba(0,0,0,0.08)] shadow-[0_-8px_40px_rgba(0,0,0,0.15)] px-5 pt-4 pb-8">
+                <div className="rounded-t-3xl bg-white border-t border-[rgba(0,0,0,0.08)] shadow-[0_-8px_40px_rgba(0,0,0,0.15)] px-5 pt-3" style={{ paddingBottom: "max(1.25rem, env(safe-area-inset-bottom))" }}>
+                  <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-zinc-200" />
                   <div className="flex items-start justify-between mb-4">
-                    <div>
+                    <div className="min-w-0 flex-1 pr-2">
                       <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-[var(--gold-500)]">Card Details</p>
-                      <h3 className="mt-0.5 text-base font-black text-[#1c1917]">{selectedCard.player_name}</h3>
+                      <h3 className="mt-0.5 text-base font-black text-[#1c1917] truncate">{selectedCard.player_name}</h3>
                       <p className="text-[12px] text-[rgba(28,25,23,0.5)]">#{selectedCard.card_number}{selectedCard.team ? ` - ${selectedCard.team}` : ""}</p>
                     </div>
-                    <button onClick={() => setSelectedCard(null)} className="rounded-full p-2 text-zinc-400 hover:bg-zinc-100 -mt-1">
+                    <button onClick={() => setSelectedCard(null)} className="flex-shrink-0 rounded-full p-2 text-zinc-400 hover:bg-zinc-100">
                       <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
                     </button>
                   </div>
