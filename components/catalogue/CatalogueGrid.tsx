@@ -19,6 +19,7 @@ export function CatalogueGrid() {
   const [query, setQuery] = useState("");
   const [setFilter, setSetFilter] = useState("all");
   const [teamFilter, setTeamFilter] = useState("all");
+  const [parallelFilter, setParallelFilter] = useState("all");
   const [inStockOnly, setInStockOnly] = useState(false);
   const [sortBy, setSortBy] = useState<SortOption>("cardNumber");
   const [isLoading, setIsLoading] = useState(true);
@@ -27,7 +28,8 @@ export function CatalogueGrid() {
 
   const options = useMemo(() => ({
     sets: Array.from(new Set(cards.map((c) => c.setName))).sort(),
-    teams: Array.from(new Set(cards.map((c) => c.team))).sort(),
+    teams: Array.from(new Set(cards.map((c) => c.team))).filter(Boolean).sort(),
+    parallels: Array.from(new Set(cards.map((c) => (c as any).parallel).filter(Boolean))).sort(),
   }), [cards]);
 
   useEffect(() => {
@@ -36,7 +38,7 @@ export function CatalogueGrid() {
     let mounted = true;
     setIsLoading(true);
     (async () => {
-      const { data, error } = await supabase.from("cards").select("*").eq("status", "published").order("card_number", { ascending: true });
+      const { data, error } = await supabase.from("cards").select("*").eq("status", "published").eq("is_base_variant", true).order("card_number", { ascending: true });
       if (!mounted) return;
       if (error) { setLoadError(error.message); setIsLoading(false); return; }
       const mapped = (data ?? []).map((d: any) => {
@@ -72,6 +74,7 @@ export function CatalogueGrid() {
         if (q && !c.playerName.toLowerCase().includes(q) && !c.team.toLowerCase().includes(q) && !c.setName.toLowerCase().includes(q) && !c.cardNumber.toLowerCase().includes(q)) return false;
         if (setFilter !== "all" && c.setName !== setFilter) return false;
         if (teamFilter !== "all" && c.team !== teamFilter) return false;
+        if (parallelFilter !== "all" && (c as any).parallel !== parallelFilter) return false;
         if (inStockOnly && c.stockStatus !== "In stock") return false;
         return true;
       })
@@ -170,6 +173,12 @@ export function CatalogueGrid() {
               <option value="all">All teams</option>
               {options.teams.map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
+            {options.parallels.length > 0 && (
+              <select value={parallelFilter} onChange={(e) => setParallelFilter(e.target.value)} className="rounded-xl border border-[rgba(0,0,0,0.1)] bg-[#fafaf9] px-3 py-2.5 text-sm text-zinc-700 outline-none">
+                <option value="all">All parallels</option>
+                {options.parallels.map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
+            )}
           </div>
         )}
       </div>

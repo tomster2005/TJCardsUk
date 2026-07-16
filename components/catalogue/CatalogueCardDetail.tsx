@@ -1,15 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useState } from "react";
 import type { CatalogueCard } from "@/lib/demo-data/catalogue";
-import getBrowserSupabase from "@/lib/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
-import type { CollectionCondition } from "@/lib/collection/types";
-import { ArrowUpIcon, CollectionIcon, SearchIcon, SparkleIcon } from "@/components/ui/icons";
+import { ArrowUpIcon, SearchIcon, SparkleIcon } from "@/components/ui/icons";
 import { useCart } from "@/contexts/CartContext";
 import { formatGBP } from "@/lib/currency";
+
+type Variant = {
+  id: string;
+  parallel: string;
+  price: number;
+  imageUrl: string | null;
+  printRun: string | null;
+  stockStatus: string;
+  availableQuantity: number | undefined;
+  isBase: boolean;
+};
 
 type CatalogueCardDetailProps = {
   card: CatalogueCard;
@@ -23,6 +30,7 @@ type CatalogueCardDetailProps = {
     setSlug: string;
     cardSlug: string;
   }>;
+  variants?: Variant[];
 };
 
 function getBadgeClass(status: string) {
@@ -43,145 +51,31 @@ function displayValue(value: string | number | undefined | null, fallback = "Not
   return text.length > 0 ? text : fallback;
 }
 
-export function CatalogueCardDetail({ card, relatedCards = [] }: CatalogueCardDetailProps) {
-  const router = useRouter();
-  const { user } = useAuth();
+export function CatalogueCardDetail({ card, relatedCards = [], variants = [] }: CatalogueCardDetailProps) {
   const cart = useCart();
   const [showBack, setShowBack] = useState(false);
   const [justAddedToCart, setJustAddedToCart] = useState(false);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isSavingCollection, setIsSavingCollection] = useState(false);
-  const [collectionError, setCollectionError] = useState<string | null>(null);
-  const [collectionSuccess, setCollectionSuccess] = useState<string | null>(null);
-  const [existingCollectionEntries, setExistingCollectionEntries] = useState<any[]>([]);
-  const [isLoadingOwnership, setIsLoadingOwnership] = useState(false);
+  const [activeVariantId, setActiveVariantId] = useState<string | null>(null);
 
-  const [quantity, setQuantity] = useState(1);
-  const [condition, setCondition] = useState<CollectionCondition>("Near Mint");
-  const [gradingCompany, setGradingCompany] = useState("");
-  const [grade, setGrade] = useState("");
-  const [purchasePrice, setPurchasePrice] = useState<number>(Number(card.price ?? 0));
-  const [estimatedValue, setEstimatedValue] = useState<number>(Number(card.estimatedValue ?? card.price ?? 0));
-  const [notes, setNotes] = useState("");
+  const activeVariant = variants.find((v) => v.id === activeVariantId) ?? null;
 
-  const displayPrice = Number(card.price ?? 0);
-  const displayMarketValue = Number(card.estimatedValue ?? 0);
-  const displayPrintRun = card.printRun ? String(card.printRun).startsWith("/") ? String(card.printRun) : `/${card.printRun}` : null;
+  // Use active variant values if one is selected, otherwise fall back to base card
+  const displayPrice = activeVariant ? activeVariant.price : Number(card.price ?? 0);
+  const displayImage = activeVariant?.imageUrl ?? card.imageUrl;
+  const displayPrintRun = activeVariant?.printRun
+    ? String(activeVariant.printRun).startsWith("/") ? activeVariant.printRun : `/${activeVariant.printRun}`
+    : card.printRun ? String(card.printRun).startsWith("/") ? String(card.printRun) : `/${card.printRun}` : null;
+  const displayStockStatus = activeVariant?.stockStatus ?? card.stockStatus;
+  const displayAvailableQty = activeVariant ? activeVariant.availableQuantity : card.availableQuantity;
+  const activeId = activeVariant?.id ?? card.id;
   const hasBackImage = Boolean(card.backImageUrl);
   const cardLabel = `${displayValue(card.playerName, "Card")} #${displayValue(card.cardNumber, "?")}`;
   const setLabel = displayValue(card.setName, "Unknown set");
-  const hasStockCap = typeof card.availableQuantity === "number";
-  const availableQuantity = hasStockCap ? Math.max(0, Number(card.availableQuantity)) : Number.POSITIVE_INFINITY;
-  const inCartQuantity = cart.getItemQuantity(card.id);
-  const isOutOfStock = hasStockCap ? availableQuantity <= 0 || card.stockStatus === "Out of stock" : card.stockStatus === "Out of stock";
+  const hasStockCap = typeof displayAvailableQty === "number";
+  const availableQuantity = hasStockCap ? Math.max(0, Number(displayAvailableQty)) : Number.POSITIVE_INFINITY;
+  const inCartQuantity = cart.getItemQuantity(activeId);
+  const isOutOfStock = hasStockCap ? availableQuantity <= 0 || displayStockStatus === "Out of stock" : displayStockStatus === "Out of stock";
   const reachedStockLimit = hasStockCap && !isOutOfStock && inCartQuantity >= availableQuantity;
-
-  useEffect(() => {
-    let mounted = true;
-
-    const loadOwnership = async () => {
-      if (!user?.id || !card.id) {
-        setExistingCollectionEntries([]);
-        return;
-      }
-
-      const supabase = getBrowserSupabase();
-      if (!supabase) return;
-
-      setIsLoadingOwnership(true);
-
-      const { data } = await supabase
-        .from("user_collections")
-        .select("*")
-        .eq("user_id", user.id)
-        .eq("card_id", card.id)
-        .order("date_added", { ascending: false });
-
-      if (!mounted) return;
-      setExistingCollectionEntries(data ?? []);
-      setIsLoadingOwnership(false);
-    };
-
-    loadOwnership();
-
-    return () => {
-      mounted = false;
-    };
-  }, [user?.id, card.id]);
-
-  const ownershipSummary = useMemo(() => {
-    if (existingCollectionEntries.length === 0) return null;
-
-    const totalQuantity = existingCollectionEntries.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
-    const latest = [...existingCollectionEntries].sort(
-      (a, b) => new Date(b.date_added).getTime() - new Date(a.date_added).getTime(),
-    )[0];
-
-    const weightedPurchaseTotal = existingCollectionEntries.reduce((sum, entry) => {
-      return sum + Number(entry.purchase_price ?? 0) * Number(entry.quantity || 0);
-    }, 0);
-    const avgPurchase = totalQuantity > 0 ? weightedPurchaseTotal / totalQuantity : 0;
-
-    const weightedEstimatedTotal = existingCollectionEntries.reduce((sum, entry) => {
-      return sum + Number(entry.estimated_value ?? card.estimatedValue ?? card.price ?? 0) * Number(entry.quantity || 0);
-    }, 0);
-    const avgEstimated = totalQuantity > 0 ? weightedEstimatedTotal / totalQuantity : 0;
-
-    return {
-      totalQuantity,
-      avgPurchase,
-      avgEstimated,
-      latest,
-      entries: existingCollectionEntries.length,
-    };
-  }, [existingCollectionEntries, card.estimatedValue, card.price]);
-
-  const collectionConditions: CollectionCondition[] = ["Mint", "Near Mint", "Excellent", "Very Good", "Good", "Fair", "Poor"];
-
-  async function handleAddToCollection() {
-    if (!user?.id) {
-      router.push("/login");
-      return;
-    }
-
-    const supabase = getBrowserSupabase();
-    if (!supabase) {
-      setCollectionError("Collection service is unavailable right now.");
-      return;
-    }
-
-    setIsSavingCollection(true);
-    setCollectionError(null);
-    setCollectionSuccess(null);
-
-    const payload = {
-      user_id: user.id,
-      card_id: card.id,
-      quantity: Math.max(1, Number(quantity || 1)),
-      condition,
-      grading_company: gradingCompany.trim() || null,
-      grade: grade.trim() || null,
-      purchase_price: Number.isFinite(purchasePrice) ? Number(purchasePrice) : null,
-      estimated_value: Number.isFinite(estimatedValue) ? Number(estimatedValue) : null,
-      notes: notes.trim() || null,
-      favourite: false,
-      for_trade: false,
-      for_sale: false,
-    };
-
-    const { data, error } = await supabase.from("user_collections").insert([payload]).select("*");
-
-    if (error) {
-      setCollectionError("Unable to add this card to your collection. Please try again.");
-      setIsSavingCollection(false);
-      return;
-    }
-
-    setExistingCollectionEntries((prev) => [...(data ?? []), ...prev]);
-    setCollectionSuccess("Card added to your collection.");
-    setIsSavingCollection(false);
-    setIsModalOpen(false);
-  }
 
   return (
     <div className="space-y-8">
@@ -208,184 +102,152 @@ export function CatalogueCardDetail({ card, relatedCards = [] }: CatalogueCardDe
         </div>
 
         <div className="mt-6 flex flex-wrap gap-2">
-          <span className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.25em] ${getBadgeClass(card.stockStatus)}`}>
-            {card.stockStatus}
+          <span className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.25em] ${getBadgeClass(displayStockStatus)}`}>
+            {displayStockStatus}
           </span>
           {card.isOneOfOne ? <span className="rounded-full border border-sky-400/35 bg-sky-100/90 px-3 py-1 text-xs font-semibold uppercase tracking-[0.25em] text-sky-800">1/1</span> : null}
         </div>
 
-        <div className="mt-8 grid gap-8 xl:grid-cols-[auto_1fr]">
-          <div className="rounded-[2rem] border border-slate-300/50 bg-[#faf8f2]/95 p-4">
-            <div className="overflow-hidden rounded-[1.5rem] border border-slate-200/80 bg-gradient-to-br from-slate-100 via-white to-zinc-100 max-w-[300px] mx-auto">
-              {card.imageUrl || card.backImageUrl ? (
-                <div className="relative aspect-[2/3] max-h-[400px] mx-auto overflow-hidden rounded-[1.25rem] p-4">
-                  <img src={showBack ? card.backImageUrl ?? card.imageUrl : card.imageUrl ?? card.backImageUrl} alt={`${displayValue(card.playerName, "Card")} ${showBack ? "back" : "front"} card`} className={`h-full w-full rounded-xl object-contain ${showBack ? "rotate-180" : ""}`} />
+        {/* Variant selector */}
+        {variants.length > 0 && (
+          <div className="mt-5">
+            <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.25em] text-zinc-500">Variants</p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setActiveVariantId(null)}
+                className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                  activeVariantId === null
+                    ? "border-amber-400/50 bg-amber-100/90 text-amber-900"
+                    : "border-slate-300/70 bg-white text-zinc-600 hover:border-amber-300/50"
+                }`}
+              >
+                Base
+              </button>
+              {variants.filter((v) => !v.isBase).map((v) => (
+                <button
+                  key={v.id}
+                  type="button"
+                  onClick={() => setActiveVariantId(v.id)}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                    activeVariantId === v.id
+                      ? "border-amber-400/50 bg-amber-100/90 text-amber-900"
+                      : "border-slate-300/70 bg-white text-zinc-600 hover:border-amber-300/50"
+                  }`}
+                >
+                  {v.parallel}
+                  {v.printRun ? ` ${v.printRun.startsWith("/") ? v.printRun : "/" + v.printRun}` : ""}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="mt-8 grid gap-6 lg:grid-cols-[auto_1fr]">
+          {/* Image */}
+          <div className="rounded-2xl border border-slate-300/50 bg-[#faf8f2]/95 p-3 mx-auto w-full max-w-[220px] lg:max-w-[260px]">
+            <div className="overflow-hidden rounded-xl border border-slate-200/80 bg-gradient-to-br from-slate-100 via-white to-zinc-100">
+              {displayImage || card.backImageUrl ? (
+                <div className="relative aspect-[2/3] overflow-hidden rounded-xl p-3">
+                  <img src={showBack ? card.backImageUrl ?? displayImage : displayImage ?? card.backImageUrl} alt={`${displayValue(card.playerName, "Card")} ${showBack ? "back" : "front"} card`} className={`h-full w-full rounded-lg object-contain ${showBack ? "rotate-180" : ""}`} />
                 </div>
               ) : (
                 <div className="flex aspect-[2/3] items-center justify-center text-zinc-500">
-                  <div className="text-center">
-                    <p className="text-sm uppercase tracking-[0.25em]">Placeholder</p>
-                    <p className="mt-2 text-lg font-medium text-zinc-600">Artwork preview</p>
-                  </div>
+                  <p className="text-sm uppercase tracking-[0.25em]">No image</p>
                 </div>
               )}
             </div>
-
-            <div className="mt-4 flex flex-wrap gap-3">
-              <button type="button" onClick={() => setShowBack((value) => !value)} className="rounded-full border border-amber-400/40 bg-amber-100/90 px-4 py-2 text-sm font-semibold text-amber-900 transition hover:bg-amber-200/80">
-                {showBack ? "Show front image" : hasBackImage ? "Flip to back image" : "Flip to back image (placeholder)"}
+            {hasBackImage && (
+              <button type="button" onClick={() => setShowBack((v) => !v)} className="mt-2 w-full rounded-full border border-amber-400/40 bg-amber-100/90 px-3 py-1.5 text-xs font-semibold text-amber-900 transition hover:bg-amber-200/80">
+                {showBack ? "Show front" : "Show back"}
               </button>
-            </div>
-
-
+            )}
           </div>
 
-          <div className="rounded-[2rem] border border-slate-300/50 bg-white/90 p-6">
-            <div className="flex items-start justify-between gap-4">
+          {/* Details */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-4">
               <div>
                 <p className="text-sm uppercase tracking-[0.3em] text-zinc-500">Price</p>
-                <p className="mt-2 text-4xl font-semibold text-amber-700">{formatGBP(displayPrice)}</p>
+                <p className="mt-1 text-3xl font-semibold text-amber-700">{formatGBP(displayPrice)}</p>
               </div>
-            </div>
-
-            <div className="mt-6 grid gap-2 sm:grid-cols-2">
-              <button type="button" onClick={() => setIsModalOpen(true)} className="rounded-full border border-amber-400/40 bg-amber-100/90 px-4 py-3 text-sm font-semibold text-amber-900 transition hover:bg-amber-200/80">
-                <span className="inline-flex items-center gap-2"><CollectionIcon className="h-4 w-4" />Add to Collection</span>
+              <button
+                type="button"
+                disabled={isOutOfStock || reachedStockLimit}
+                onClick={() => {
+                  if (isOutOfStock || reachedStockLimit) return;
+                  setJustAddedToCart(true);
+                  window.setTimeout(() => setJustAddedToCart(false), 900);
+                  cart.addToCart({
+                    id: activeId,
+                    playerName: card.playerName,
+                    cardNumber: card.cardNumber,
+                    price: displayPrice,
+                    imageUrl: displayImage,
+                    availableQuantity: hasStockCap ? availableQuantity : undefined,
+                  });
+                }}
+                className={`rounded-full border px-5 py-2.5 text-sm font-semibold transition ${
+                  isOutOfStock || reachedStockLimit
+                    ? "cursor-not-allowed border-slate-300/70 bg-slate-100/85 text-zinc-500"
+                    : justAddedToCart
+                    ? "animate-added-chip border-emerald-400/45 bg-emerald-100/95 text-emerald-900"
+                    : "border-amber-400/40 bg-amber-100/90 text-amber-900 hover:bg-amber-200/80"
+                }`}
+              >
+                {isOutOfStock ? "Out of stock" : reachedStockLimit ? "Max qty" : justAddedToCart ? "Added ✓" : "Add to Cart"}
               </button>
-                <button
-                  type="button"
-                  disabled={isOutOfStock || reachedStockLimit}
-                  onClick={() => {
-                    if (isOutOfStock || reachedStockLimit) return;
-                    setJustAddedToCart(true);
-                    window.setTimeout(() => setJustAddedToCart(false), 900);
-                    cart.addToCart({
-                      id: card.id,
-                      playerName: card.playerName,
-                      cardNumber: card.cardNumber,
-                      price: card.price,
-                      imageUrl: card.imageUrl,
-                      availableQuantity: hasStockCap ? availableQuantity : undefined,
-                    });
-                  }}
-                  className={`rounded-full border px-4 py-3 text-sm font-semibold transition ${
-                    isOutOfStock || reachedStockLimit
-                      ? "cursor-not-allowed border-slate-300/70 bg-slate-100/85 text-zinc-500"
-                      : justAddedToCart
-                      ? "animate-added-chip border-emerald-400/45 bg-emerald-100/95 text-emerald-900"
-                      : "border-amber-400/40 bg-amber-100/90 text-amber-900 hover:bg-amber-200/80"
-                  }`}
-                >
-                  <span className="inline-flex items-center gap-2">
-                    {isOutOfStock ? "Out of stock" : reachedStockLimit ? "Max quantity reached" : justAddedToCart ? "Added to cart" : "Add to Cart"}
-                  </span>
-                </button>
             </div>
 
-            {collectionSuccess ? (
-              <div className="mt-4 rounded-xl border border-emerald-400/20 bg-emerald-400/10 p-3 text-sm text-emerald-200">{collectionSuccess}</div>
-            ) : null}
-
-            {collectionError ? (
-              <div className="mt-4 rounded-xl border border-red-400/20 bg-red-500/10 p-3 text-sm text-red-200">{collectionError}</div>
-            ) : null}
-
-            {isLoadingOwnership ? (
-              <div className="mt-6 rounded-[1.5rem] border border-slate-300/60 bg-white/85 p-5 text-sm text-zinc-600 skeleton-shimmer">Loading collection ownership…</div>
-            ) : ownershipSummary ? (
-              <div className="mt-6 rounded-[1.5rem] border border-amber-300/45 bg-amber-100/40 p-5">
-                <p className="text-xs uppercase tracking-[0.3em] text-amber-700">In your collection</p>
-                <dl className="mt-3 grid gap-3 text-sm text-zinc-700 sm:grid-cols-2">
-                  <div className="rounded-2xl border border-slate-300/60 bg-white/85 p-3">
-                    <dt className="text-zinc-500">Quantity owned</dt>
-                    <dd className="mt-1 font-semibold text-zinc-900">{ownershipSummary.totalQuantity}</dd>
-                  </div>
-                  <div className="rounded-2xl border border-slate-300/60 bg-white/85 p-3">
-                    <dt className="text-zinc-500">Entries</dt>
-                    <dd className="mt-1 font-semibold text-zinc-900">{ownershipSummary.entries}</dd>
-                  </div>
-                  <div className="rounded-2xl border border-slate-300/60 bg-white/85 p-3">
-                    <dt className="text-zinc-500">Avg purchase price</dt>
-                    <dd className="mt-1 font-semibold text-zinc-900">{formatGBP(Number(ownershipSummary.avgPurchase.toFixed(2)))}</dd>
-                  </div>
-                  <div className="rounded-2xl border border-slate-300/60 bg-white/85 p-3">
-                    <dt className="text-zinc-500">Avg estimated value</dt>
-                    <dd className="mt-1 font-semibold text-zinc-900">{formatGBP(Number(ownershipSummary.avgEstimated.toFixed(2)))}</dd>
-                  </div>
-                  <div className="rounded-2xl border border-slate-300/60 bg-white/85 p-3">
-                    <dt className="text-zinc-500">Condition</dt>
-                    <dd className="mt-1 font-semibold text-zinc-900">{displayValue(ownershipSummary.latest?.condition)}</dd>
-                  </div>
-                  <div className="rounded-2xl border border-slate-300/60 bg-white/85 p-3">
-                    <dt className="text-zinc-500">Grade</dt>
-                    <dd className="mt-1 font-semibold text-zinc-900">{displayValue(ownershipSummary.latest?.grade)}</dd>
-                  </div>
-                  <div className="rounded-2xl border border-slate-300/60 bg-white/85 p-3 sm:col-span-2">
-                    <dt className="text-zinc-500">Date added</dt>
-                    <dd className="mt-1 font-semibold text-zinc-900">{new Date(ownershipSummary.latest?.date_added ?? Date.now()).toLocaleDateString()}</dd>
-                  </div>
-                  <div className="rounded-2xl border border-slate-300/60 bg-white/85 p-3 sm:col-span-2">
-                    <dt className="text-zinc-500">Notes</dt>
-                    <dd className="mt-1 font-semibold text-zinc-900">{displayValue(ownershipSummary.latest?.notes)}</dd>
-                  </div>
-                </dl>
-              </div>
-            ) : null}
-
-            <div className="mt-8 rounded-[1.5rem] border border-slate-300/60 bg-[#f8f5ee]/90 p-5">
-              <dl className="grid gap-3 text-sm text-zinc-700 sm:grid-cols-2">
-                <div className="rounded-2xl border border-slate-300/60 bg-white/90 p-3">
-                  <dt className="text-zinc-500">Player</dt>
-                  <dd className="mt-1 font-semibold text-zinc-900">{displayValue(card.playerName)}</dd>
+            <div className="rounded-2xl border border-slate-300/60 bg-[#f8f5ee]/90 p-4">
+              <dl className="grid grid-cols-2 gap-2 text-sm text-zinc-700">
+                <div className="rounded-xl border border-slate-300/60 bg-white/90 p-2.5">
+                  <dt className="text-[11px] text-zinc-500">Player</dt>
+                  <dd className="mt-0.5 font-semibold text-zinc-900 truncate">{displayValue(card.playerName)}</dd>
                 </div>
-                <div className="rounded-2xl border border-slate-300/60 bg-white/90 p-3">
-                  <dt className="text-zinc-500">Card number</dt>
-                  <dd className="mt-1 font-semibold text-zinc-900">#{displayValue(card.cardNumber, "?")}</dd>
+                <div className="rounded-xl border border-slate-300/60 bg-white/90 p-2.5">
+                  <dt className="text-[11px] text-zinc-500">Card #</dt>
+                  <dd className="mt-0.5 font-semibold text-zinc-900">#{displayValue(card.cardNumber, "?")}</dd>
                 </div>
                 {card.team && String(card.team).trim() && (
-                  <div className="rounded-2xl border border-slate-300/60 bg-white/90 p-3">
-                    <dt className="text-zinc-500">Team</dt>
-                    <dd className="mt-1 font-semibold text-zinc-900">{card.team}</dd>
+                  <div className="rounded-xl border border-slate-300/60 bg-white/90 p-2.5">
+                    <dt className="text-[11px] text-zinc-500">Team</dt>
+                    <dd className="mt-0.5 font-semibold text-zinc-900 truncate">{card.team}</dd>
                   </div>
                 )}
                 {card.brand && String(card.brand).trim() && (
-                  <div className="rounded-2xl border border-slate-300/60 bg-white/90 p-3">
-                    <dt className="text-zinc-500">Brand</dt>
-                    <dd className="mt-1 font-semibold text-zinc-900">{card.brand}</dd>
+                  <div className="rounded-xl border border-slate-300/60 bg-white/90 p-2.5">
+                    <dt className="text-[11px] text-zinc-500">Brand</dt>
+                    <dd className="mt-0.5 font-semibold text-zinc-900 truncate">{card.brand}</dd>
                   </div>
                 )}
-                <div className="rounded-2xl border border-slate-300/60 bg-white/90 p-3">
-                  <dt className="text-zinc-500">Set</dt>
-                  <dd className="mt-1 font-semibold text-zinc-900">{setLabel}</dd>
+                <div className="rounded-xl border border-slate-300/60 bg-white/90 p-2.5">
+                  <dt className="text-[11px] text-zinc-500">Set</dt>
+                  <dd className="mt-0.5 font-semibold text-zinc-900 truncate">{setLabel}</dd>
                 </div>
                 {card.season && String(card.season).trim() && (
-                  <div className="rounded-2xl border border-slate-300/60 bg-white/90 p-3">
-                    <dt className="text-zinc-500">Season</dt>
-                    <dd className="mt-1 font-semibold text-zinc-900">{card.season}</dd>
+                  <div className="rounded-xl border border-slate-300/60 bg-white/90 p-2.5">
+                    <dt className="text-[11px] text-zinc-500">Season</dt>
+                    <dd className="mt-0.5 font-semibold text-zinc-900">{card.season}</dd>
                   </div>
                 )}
                 {card.parallel && String(card.parallel).trim() && (
-                  <div className="rounded-2xl border border-slate-300/60 bg-white/90 p-3">
-                    <dt className="text-zinc-500">Parallel</dt>
-                    <dd className="mt-1 font-semibold text-zinc-900">{card.parallel}</dd>
+                  <div className="rounded-xl border border-slate-300/60 bg-white/90 p-2.5">
+                    <dt className="text-[11px] text-zinc-500">Parallel</dt>
+                    <dd className="mt-0.5 font-semibold text-zinc-900">{card.parallel}</dd>
                   </div>
                 )}
                 {displayPrintRun && (
-                  <div className="rounded-2xl border border-slate-300/60 bg-white/90 p-3">
-                    <dt className="text-zinc-500">Print run</dt>
-                    <dd className="mt-1 font-semibold text-zinc-900">{displayPrintRun}</dd>
+                  <div className="rounded-xl border border-slate-300/60 bg-white/90 p-2.5">
+                    <dt className="text-[11px] text-zinc-500">Print run</dt>
+                    <dd className="mt-0.5 font-semibold text-zinc-900">{displayPrintRun}</dd>
                   </div>
                 )}
-                <div className="rounded-2xl border border-slate-300/60 bg-white/90 p-3">
-                  <dt className="text-zinc-500">Stock status</dt>
-                  <dd className="mt-1 font-semibold text-zinc-900">{card.stockStatus}</dd>
+                <div className="rounded-xl border border-slate-300/60 bg-white/90 p-2.5">
+                  <dt className="text-[11px] text-zinc-500">Stock</dt>
+                  <dd className="mt-0.5 font-semibold text-zinc-900">{card.stockStatus}</dd>
                 </div>
               </dl>
-            </div>
-
-            <div className="mt-6 rounded-[1.5rem] border border-slate-300/60 bg-white/88 p-5 text-sm leading-7 text-zinc-600">
-              <p className="text-xs uppercase tracking-[0.3em] text-amber-700">About this card</p>
-              <p className="mt-3">{card.description || "No description has been added yet."}</p>
             </div>
           </div>
         </div>
@@ -417,80 +279,6 @@ export function CatalogueCardDetail({ card, relatedCards = [] }: CatalogueCardDe
         )}
       </section>
 
-      {isModalOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/20 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-2xl rounded-[2rem] border border-slate-300/60 bg-white/96 p-6 shadow-[0_30px_70px_rgba(15,23,42,0.18)]">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-sm uppercase tracking-[0.3em] text-amber-700">Collection</p>
-                <h3 className="mt-2 text-2xl font-semibold text-zinc-900">Add to Collection</h3>
-                <p className="mt-2 text-sm text-zinc-600">{cardLabel}</p>
-              </div>
-              <button type="button" onClick={() => setIsModalOpen(false)} className="rounded-full border border-slate-300/70 bg-white px-3 py-1.5 text-sm text-zinc-700">
-                Close
-              </button>
-            </div>
-
-            <div className="mt-6 grid gap-4 sm:grid-cols-2">
-              <label className="block">
-                <span className="text-sm text-zinc-700">Quantity</span>
-                <input
-                  type="number"
-                  min={1}
-                  value={quantity}
-                  onChange={(event) => setQuantity(Math.max(1, Number(event.target.value) || 1))}
-                  className="mt-2 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none"
-                />
-              </label>
-
-              <label className="block">
-                <span className="text-sm text-zinc-700">Condition</span>
-                <select value={condition} onChange={(event) => setCondition(event.target.value as CollectionCondition)} className="mt-2 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none">
-                  {collectionConditions.map((value) => (
-                    <option key={value} value={value}>
-                      {value}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="block">
-                <span className="text-sm text-zinc-700">Grading company</span>
-                <input value={gradingCompany} onChange={(event) => setGradingCompany(event.target.value)} placeholder="PSA, BGS, SGC..." className="mt-2 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
-              </label>
-
-              <label className="block">
-                <span className="text-sm text-zinc-700">Grade</span>
-                <input value={grade} onChange={(event) => setGrade(event.target.value)} placeholder="10, 9.5, Raw..." className="mt-2 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
-              </label>
-
-              <label className="block">
-                <span className="text-sm text-zinc-700">Purchase price</span>
-                <input type="number" min={0} step="0.01" value={purchasePrice} onChange={(event) => setPurchasePrice(Number(event.target.value) || 0)} className="mt-2 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
-              </label>
-
-              <label className="block">
-                <span className="text-sm text-zinc-700">Estimated value</span>
-                <input type="number" min={0} step="0.01" value={estimatedValue} onChange={(event) => setEstimatedValue(Number(event.target.value) || 0)} className="mt-2 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
-              </label>
-
-              <label className="block sm:col-span-2">
-                <span className="text-sm text-zinc-700">Notes</span>
-                <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={4} placeholder="Optional notes..." className="mt-2 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
-              </label>
-            </div>
-
-            <div className="mt-6 flex items-center justify-end gap-3">
-              <button type="button" onClick={() => setIsModalOpen(false)} className="rounded-full border border-slate-300/70 bg-white px-4 py-2 text-sm font-semibold text-zinc-700">
-                Cancel
-              </button>
-              <button type="button" onClick={handleAddToCollection} disabled={isSavingCollection} className="rounded-full border border-amber-400/40 bg-amber-100/90 px-4 py-2 text-sm font-semibold text-amber-900 disabled:cursor-not-allowed disabled:opacity-60">
-                {isSavingCollection ? "Saving..." : "Save to Collection"}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }

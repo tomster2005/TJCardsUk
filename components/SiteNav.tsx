@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { BookIcon, CartIcon, CollectionIcon, GridIcon, SearchIcon } from "@/components/ui/icons";
+import { BookIcon, CartIcon, GridIcon, SearchIcon } from "@/components/ui/icons";
 import { useCart } from "@/contexts/CartContext";
 
 export function SiteNav() {
@@ -42,7 +42,6 @@ export function SiteNav() {
   const primaryNav = [
     { href: "/dashboard", label: "Vault", icon: <GridIcon className="h-3.5 w-3.5" /> },
     { href: "/catalogue", label: "Browse", icon: <SearchIcon className="h-3.5 w-3.5" /> },
-    { href: "/collection", label: "Collection", icon: <CollectionIcon className="h-3.5 w-3.5" /> },
     { href: "/binder", label: "Binder", icon: <BookIcon className="h-3.5 w-3.5" /> },
   ];
 

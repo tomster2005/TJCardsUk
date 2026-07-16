@@ -14,13 +14,8 @@ export default async function CatalogueCardPage({ params }: Props) {
 
   const { data: cards, error } = await supabase.from("cards").select("*").eq("status", "published").order("created_at", { ascending: false });
 
-  if (error) {
-    throw new Error("Unable to load catalogue card.");
-  }
-
-  if (!cards || cards.length === 0) {
-    notFound();
-  }
+  if (error) throw new Error("Unable to load catalogue card.");
+  if (!cards || cards.length === 0) notFound();
 
   const data = cards.find((card) => {
     const { setSlug: rowSetSlug, cardSlug: rowCardSlug } = buildPublicCardSlugs({
@@ -32,8 +27,18 @@ export default async function CatalogueCardPage({ params }: Props) {
     return rowSetSlug === setSlug && rowCardSlug === cardSlug;
   });
 
-  if (!data) {
-    notFound();
+  if (!data) notFound();
+
+  // Fetch variants if this card has a variant_group_id
+  let variantRows: any[] = [];
+  if (data.variant_group_id) {
+    const { data: vData } = await supabase
+      .from("cards")
+      .select("id, player, card_number, parallel, price, stock, stock_status, image_url, print_run, is_base_variant")
+      .eq("variant_group_id", data.variant_group_id)
+      .eq("status", "published")
+      .order("is_base_variant", { ascending: false });
+    variantRows = vData ?? [];
   }
 
   const rawStock = Number(data.stock ?? data.quantity);
@@ -62,8 +67,23 @@ export default async function CatalogueCardPage({ params }: Props) {
     isOneOfOne: data.is_one_of_one ?? data.isOneOfOne,
   };
 
+  const variants = variantRows.map((v) => {
+    const rawS = Number(v.stock);
+    const avail = Number.isFinite(rawS) ? Math.max(0, rawS) : undefined;
+    return {
+      id: v.id,
+      parallel: v.parallel ?? "Base",
+      price: Number(v.price ?? 0),
+      imageUrl: v.image_url ?? null,
+      printRun: v.print_run ?? null,
+      stockStatus: v.stock_status ?? (avail === undefined ? "In stock" : avail > 0 ? "In stock" : "Out of stock"),
+      availableQuantity: avail,
+      isBase: Boolean(v.is_base_variant),
+    };
+  });
+
   const relatedCards = cards
-    .filter((item) => item.id !== data.id)
+    .filter((item) => item.id !== data.id && Boolean(item.is_base_variant !== false))
     .filter((item) => (item.set_name ?? item.setName ?? "") === (data.set_name ?? data.setName ?? ""))
     .slice(0, 4)
     .map((item) => {
@@ -73,7 +93,6 @@ export default async function CatalogueCardPage({ params }: Props) {
         player: item.player,
         cardNumber: item.card_number ?? item.cardNumber,
       });
-
       return {
         id: item.id,
         playerName: item.player ?? item.player_name ?? item.title ?? "Unknown",
@@ -87,7 +106,7 @@ export default async function CatalogueCardPage({ params }: Props) {
 
   return (
     <Layout>
-      <CatalogueCardDetail card={card} relatedCards={relatedCards} />
+      <CatalogueCardDetail card={card} relatedCards={relatedCards} variants={variants} />
     </Layout>
   );
 }

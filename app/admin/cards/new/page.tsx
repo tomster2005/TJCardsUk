@@ -14,6 +14,9 @@ export default function NewCardPage() {
   const [price, setPrice] = useState(0);
   const [stock, setStock] = useState(0);
   const [status, setStatus] = useState("draft");
+  const [parallel, setParallel] = useState("");
+  const [variantGroupId, setVariantGroupId] = useState("");
+  const [isBaseVariant, setIsBaseVariant] = useState(true);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -52,6 +55,9 @@ export default function NewCardPage() {
       stock: Number(stock),
       status: normalizedStatus,
       slug,
+      parallel: parallel.trim() || null,
+      variant_group_id: variantGroupId.trim() || null,
+      is_base_variant: isBaseVariant,
     };
 
     const { error } = await supabase.from("cards").insert([payload]);
