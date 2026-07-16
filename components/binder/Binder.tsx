@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState, useRef, forwardRef, useCallback } from "react";
 import { getBrowserSupabase } from "@/lib/supabase/client";
@@ -74,7 +74,7 @@ function PocketCell({ card, isActive, onSelect, onToggleCollected }: {
             )}
           </div>
           {card.collected && (
-            <span className="absolute left-1 top-1 rounded-full bg-[rgba(34,197,94,0.9)] px-1.5 py-0.5 text-[7px] font-black text-white">âœ“</span>
+            <span className="absolute left-1 top-1 rounded-full bg-[rgba(34,197,94,0.9)] px-1.5 py-0.5 text-[7px] font-black text-white">✓</span>
           )}
           {!card.collected && card.stock > 0 && (
             <span className="absolute right-1 top-1 rounded-full px-1.5 py-0.5 text-[7px] font-black text-[#0d0d0f]" style={{ background: "linear-gradient(135deg, #f5d97a, #c89b3c)" }}>{card.stock}x</span>
@@ -699,7 +699,7 @@ export function BinderView() {
                         : "btn-gold"
                     }`}
                   >
-                    {toggling ? "..." : selectedCard.collected ? "Remove from collection" : "Mark as collected âœ“"}
+                    : "Mark as collected✓"
                   </button>
                 )}
 
