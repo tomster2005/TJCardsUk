@@ -100,7 +100,7 @@ export function CatalogueGrid() {
               <span className="text-gold">chase card.</span>
             </h1>
             <p className="text-[14px] leading-relaxed text-zinc-500">
-              {isLoading ? "Loading the vault..." : `${visibleCards.length} cards available across Football and Disney collections.`}
+              {isLoading ? "Loading the vault..." : `${visibleCards.length} card${visibleCards.length !== 1 ? "s" : ""} available.`}
             </p>
           </div>
 
@@ -129,33 +129,35 @@ export function CatalogueGrid() {
 
       {/* ══ SEARCH + FILTERS ════════════════════════════════════════════ */}
       <div className="animate-fade-up space-y-3" style={{ animationDelay: "60ms" }}>
-        <div className="flex gap-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:gap-3">
           <div className="relative flex-1">
             <span className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400">🔍</span>
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search player, team, set, card number..."
+              placeholder="Search player, team, set..."
               className="w-full rounded-2xl border border-[rgba(0,0,0,0.1)] bg-white py-3.5 pl-10 pr-4 text-sm text-zinc-800 outline-none placeholder:text-zinc-400 transition focus:border-[rgba(200,155,60,0.4)]"
             />
           </div>
-          <button
-            type="button"
-            onClick={() => setShowFilters((v) => !v)}
-            className={`rounded-2xl border px-5 py-3.5 text-sm font-semibold transition ${showFilters ? "border-[rgba(200,155,60,0.3)] bg-[rgba(200,155,60,0.08)] text-[#92400e]" : "border-[rgba(0,0,0,0.1)] bg-white text-zinc-600 hover:text-zinc-900"}`}
-          >
-            Filters {showFilters ? "↑" : "↓"}
-          </button>
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as SortOption)}
-            className="rounded-2xl border border-[rgba(0,0,0,0.1)] bg-white px-4 py-3.5 text-sm text-zinc-700 outline-none"
-          >
-            <option value="cardNumber">Card #</option>
-            <option value="playerName">Player</option>
-            <option value="priceLow">Price ↑</option>
-            <option value="priceHigh">Price ↓</option>
-          </select>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setShowFilters((v) => !v)}
+              className={`flex-1 rounded-2xl border px-4 py-3.5 text-sm font-semibold transition sm:flex-none sm:px-5 ${showFilters ? "border-[rgba(200,155,60,0.3)] bg-[rgba(200,155,60,0.08)] text-[#92400e]" : "border-[rgba(0,0,0,0.1)] bg-white text-zinc-600 hover:text-zinc-900"}`}
+            >
+              Filters {showFilters ? "↑" : "↓"}
+            </button>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as SortOption)}
+              className="flex-1 rounded-2xl border border-[rgba(0,0,0,0.1)] bg-white px-3 py-3.5 text-sm text-zinc-700 outline-none sm:flex-none sm:px-4"
+            >
+              <option value="cardNumber">Card #</option>
+              <option value="playerName">Player</option>
+              <option value="priceLow">Price ↑</option>
+              <option value="priceHigh">Price ↓</option>
+            </select>
+          </div>
         </div>
 
         {showFilters && (
