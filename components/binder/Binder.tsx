@@ -630,9 +630,10 @@ export function BinderView() {
               {/* Mobile: bottom sheet */}
               <div className="fixed inset-x-0 bottom-0 z-50 lg:hidden" style={{ animation: "slide-up 300ms cubic-bezier(0.22,1,0.36,1) both" }}>
                 <div
-                  className="rounded-t-3xl bg-white border-t border-[rgba(0,0,0,0.08)] shadow-[0_-8px_40px_rgba(0,0,0,0.15)] px-5 pt-3 overflow-y-auto"
-                  style={{ paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))", maxHeight: "60vh" }}
+                  className="rounded-t-3xl bg-white border-t border-[rgba(0,0,0,0.08)] shadow-[0_-8px_40px_rgba(0,0,0,0.15)] overflow-y-auto"
+                  style={{ maxHeight: "60vh" }}
                 >
+                <div className="px-5 pt-3" style={{ paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))" }}>
                   <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-zinc-200" />
                   <div className="flex items-start justify-between mb-4">
                     <div className="min-w-0 flex-1 pr-2">
@@ -669,6 +670,7 @@ export function BinderView() {
                       </button>
                     )}
                   </div>
+                </div>
                 </div>
               </div>
               <div className="fixed inset-0 z-40 bg-black/20 lg:hidden" onClick={() => setSelectedCard(null)} />
