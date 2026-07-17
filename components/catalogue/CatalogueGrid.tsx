@@ -15,7 +15,8 @@ type SortOption = "cardNumber" | "playerName" | "priceLow" | "priceHigh";
 export function CatalogueGrid() {
   const cart = useCart();
   const [recentlyAddedCardId, setRecentlyAddedCardId] = useState<string | null>(null);
-  const [cards, setCards] = useState<CatalogueCard[]>([]);
+  const [cards, setCards] = useState<CatalogueCard[]>([]); // base cards only for display
+  const [allParallels, setAllParallels] = useState<string[]>([]); // all parallel names across all variants
   const [query, setQuery] = useState("");
   const [setFilter, setSetFilter] = useState("all");
   const [teamFilter, setTeamFilter] = useState("all");
@@ -29,8 +30,8 @@ export function CatalogueGrid() {
   const options = useMemo(() => ({
     sets: Array.from(new Set(cards.map((c) => c.setName))).sort(),
     teams: Array.from(new Set(cards.map((c) => c.team))).filter(Boolean).sort(),
-    parallels: Array.from(new Set(cards.map((c) => c.parallel).filter(Boolean))).sort(),
-  }), [cards]);
+    parallels: allParallels,
+  }), [cards, allParallels]);
 
   useEffect(() => {
     const supabase = getBrowserSupabase();
@@ -43,17 +44,28 @@ export function CatalogueGrid() {
       if (error) { setLoadError(error.message); setIsLoading(false); return; }
 
       // Deduplicate: one card per card_number+set_name, prefer no parallel (base)
+      // Also track which parallels exist per base card key
       const seen = new Map<string, any>();
+      const parallelsByKey = new Map<string, string[]>();
+      const allParallelNames = new Set<string>();
+
       for (const d of (data ?? [])) {
         const key = `${d.set_name ?? ""}__${d.card_number ?? ""}`;
-        const existing = seen.get(key);
-        if (!existing || (!d.parallel && existing.parallel)) {
+        if (d.parallel) {
+          allParallelNames.add(d.parallel);
+          const existing = parallelsByKey.get(key) ?? [];
+          parallelsByKey.set(key, [...existing, d.parallel]);
+        }
+        const existingBase = seen.get(key);
+        if (!existingBase || (!d.parallel && existingBase.parallel)) {
           seen.set(key, d);
         }
       }
       const deduped = Array.from(seen.values());
+      setAllParallels(Array.from(allParallelNames).sort());
 
       const mapped = (deduped).map((d: any) => {
+        const key = `${d.set_name ?? ""}__${d.card_number ?? ""}`;
         const setName = d.set_name ?? d.setName ?? "";
         const title = d.title ?? d.player ?? "";
         const cardNumber = d.card_number ?? d.cardNumber ?? "";
@@ -64,13 +76,14 @@ export function CatalogueGrid() {
           id: d.id, playerName: d.player ?? "Unknown", cardNumber: cardNumber || "?",
           availableQuantity, team: d.team ?? "", setName, brand: d.brand ?? "",
           price: Number(d.price ?? 0),
-          stockStatus: d.stock_status ?? (availableQuantity === undefined ? "In stock" : availableQuantity > 0 ? "In stock" : "Out of stock"),
+          stockStatus: availableQuantity === undefined ? "In stock" : availableQuantity > 0 ? "In stock" : "Out of stock",
           imageUrl: d.image_url ?? d.imageUrl, backImageUrl: d.back_image_url ?? d.backImageUrl,
           description: d.description ?? "", season: d.season ?? "", condition: d.condition ?? "",
           estimatedValue: Number(d.estimated_value ?? 0), marketplacePrice: Number(d.marketplace_price ?? 0),
           population: Number(d.population ?? 0),
           isOneOfOne: Boolean(d.is_one_of_one ?? false),
           parallel: d.parallel ?? "",
+          variantParallels: parallelsByKey.get(key) ?? [],
           slug: d.slug ?? "", setSlug, cardSlug,
         };
       });
@@ -87,7 +100,7 @@ export function CatalogueGrid() {
         if (q && !c.playerName.toLowerCase().includes(q) && !c.team.toLowerCase().includes(q) && !c.setName.toLowerCase().includes(q) && !c.cardNumber.toLowerCase().includes(q)) return false;
         if (setFilter !== "all" && c.setName !== setFilter) return false;
         if (teamFilter !== "all" && c.team !== teamFilter) return false;
-        if (parallelFilter !== "all" && (c.parallel ?? "") !== parallelFilter) return false;
+        if (parallelFilter !== "all" && !(c as any).variantParallels?.includes(parallelFilter)) return false;
         if (inStockOnly && c.stockStatus !== "In stock") return false;
         return true;
       })

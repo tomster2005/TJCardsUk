@@ -17,7 +17,7 @@ export default async function CatalogueCardPage({ params }: Props) {
   if (error) throw new Error("Unable to load catalogue card.");
   if (!cards || cards.length === 0) notFound();
 
-  const data = cards.find((card) => {
+  const matches = cards.filter((card) => {
     const { setSlug: rowSetSlug, cardSlug: rowCardSlug } = buildPublicCardSlugs({
       setName: card.set_name ?? card.setName,
       title: card.title,
@@ -27,63 +27,71 @@ export default async function CatalogueCardPage({ params }: Props) {
     return rowSetSlug === setSlug && rowCardSlug === cardSlug;
   });
 
+  // Prefer the base card (no parallel) if multiple rows share the same slug
+  const data = matches.find((c) => !c.parallel) ?? matches[0];
+
   if (!data) notFound();
 
-  // Fetch variants by matching card_number + set_name where parallel is not null
-  let variantRows: any[] = [];
-  const { data: vData } = await supabase
+  // Fetch all cards with same card_number + set_name (base + all parallels)
+  const { data: allVariants, error: variantError } = await supabase
     .from("cards")
-    .select("id, player, card_number, parallel, price, stock, stock_status, image_url, print_run")
+    .select("id, player, card_number, parallel, price, stock, image_url, print_run, is_base_variant")
     .eq("card_number", data.card_number)
     .eq("set_name", data.set_name)
-    .eq("status", "published")
-    .not("parallel", "is", null);
-  variantRows = vData ?? [];
+    .eq("status", "published");
 
-  const rawStock = Number(data.stock ?? data.quantity);
+  // If we landed on a parallel, find the base to use as the primary card
+  const resolvedData = data.parallel
+    ? (allVariants ?? []).find((v) => !v.parallel) ?? data
+    : data;
+
+  const variantRows = (allVariants ?? []).filter((v) => v.id !== resolvedData.id);
+
+  const rawStock = Number(resolvedData.stock ?? resolvedData.quantity);
   const availableQuantity = Number.isFinite(rawStock) ? Math.max(0, rawStock) : undefined;
 
   const card = {
-    id: data.id,
-    playerName: data.player ?? data.player_name ?? data.playerName ?? "Unknown",
-    cardNumber: data.card_number ?? data.cardNumber ?? "?",
+    id: resolvedData.id,
+    playerName: resolvedData.player ?? resolvedData.player_name ?? resolvedData.playerName ?? "Unknown",
+    cardNumber: resolvedData.card_number ?? resolvedData.cardNumber ?? "?",
     availableQuantity,
-    team: data.team,
-    setName: data.set_name ?? data.setName,
-    brand: data.brand,
-    parallel: data.parallel,
-    price: data.price,
-    stockStatus: data.stock_status ?? (availableQuantity === undefined ? "In stock" : availableQuantity > 0 ? "In stock" : "Out of stock"),
-    imageUrl: data.image_url ?? data.imageUrl,
-    backImageUrl: data.back_image_url ?? data.backImageUrl,
-    description: data.description,
-    season: data.season,
-    condition: data.condition,
-    estimatedValue: data.estimated_value ?? data.estimatedValue,
-    marketplacePrice: data.marketplace_price ?? data.marketplacePrice,
-    printRun: data.print_run ?? data.printRun,
-    population: data.population,
-    isOneOfOne: data.is_one_of_one ?? data.isOneOfOne,
+    team: resolvedData.team,
+    setName: resolvedData.set_name ?? resolvedData.setName,
+    brand: resolvedData.brand,
+    parallel: resolvedData.parallel,
+    price: resolvedData.price,
+    stockStatus: resolvedData.stock_status ?? (availableQuantity === undefined ? "In stock" : availableQuantity > 0 ? "In stock" : "Out of stock"),
+    imageUrl: resolvedData.image_url ?? resolvedData.imageUrl,
+    backImageUrl: resolvedData.back_image_url ?? resolvedData.backImageUrl,
+    description: resolvedData.description,
+    season: resolvedData.season,
+    condition: resolvedData.condition,
+    estimatedValue: resolvedData.estimated_value ?? resolvedData.estimatedValue,
+    marketplacePrice: resolvedData.marketplace_price ?? resolvedData.marketplacePrice,
+    printRun: resolvedData.print_run ?? resolvedData.printRun,
+    population: resolvedData.population,
+    isOneOfOne: resolvedData.is_one_of_one ?? resolvedData.isOneOfOne,
   };
 
   const variants = variantRows.map((v) => {
     const rawS = Number(v.stock);
     const avail = Number.isFinite(rawS) ? Math.max(0, rawS) : undefined;
+    const stockStatus = avail === undefined ? "In stock" : avail > 0 ? "In stock" : "Out of stock";
     return {
       id: v.id,
-      parallel: v.parallel,
+      parallel: v.parallel ?? "Base",
       price: Number(v.price ?? 0),
       imageUrl: v.image_url ?? null,
       printRun: v.print_run ?? null,
-      stockStatus: v.stock_status ?? (avail === undefined ? "In stock" : avail > 0 ? "In stock" : "Out of stock"),
+      stockStatus,
       availableQuantity: avail,
-      isBase: false,
+      isBase: !v.parallel,
     };
   });
 
   const relatedCards = cards
-    .filter((item) => item.id !== data.id && !item.parallel)
-    .filter((item) => (item.set_name ?? "") === (data.set_name ?? ""))
+    .filter((item) => item.id !== resolvedData.id && !item.parallel)
+    .filter((item) => (item.set_name ?? "") === (resolvedData.set_name ?? ""))
     .slice(0, 4)
     .map((item) => {
       const { setSlug: relatedSetSlug, cardSlug: relatedCardSlug } = buildPublicCardSlugs({

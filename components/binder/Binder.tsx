@@ -27,6 +27,7 @@ type ChecklistCard = {
   stock: number;
   community_image: string | null;
   community_credit: string | null;
+  personal_image: string | null;
   collected: boolean;
 };
 
@@ -36,8 +37,8 @@ function PocketCell({ card, isActive, onSelect, onToggleCollected }: {
   onSelect: () => void;
   onToggleCollected: () => void;
 }) {
-  const hasImage = card.image_url || card.community_image;
-  const displayImage = card.image_url || card.community_image;
+  const displayImage = card.personal_image || card.image_url || card.community_image;
+  const hasImage = !!displayImage;
 
   return (
     <button
@@ -69,7 +70,7 @@ function PocketCell({ card, isActive, onSelect, onToggleCollected }: {
           <div className="pointer-events-none absolute inset-0" style={{ background: "linear-gradient(to top, rgba(0,0,0,0.7) 0%, transparent 60%)" }} />
           <div className="absolute inset-x-0 bottom-0 p-1.5">
             <p className="truncate text-[8px] font-bold text-white">{card.player_name}</p>
-            {card.community_credit && !card.image_url && (
+            {card.community_credit && !card.image_url && !card.personal_image && (
               <p className="truncate text-[6px] text-[rgba(255,255,255,0.5)]">Photo: {card.community_credit}</p>
             )}
           </div>
@@ -149,7 +150,7 @@ function UploadModal({ card, onClose, onUploaded }: {
       const username = profile?.username || "Anonymous";
 
       const ext = file.name.split(".").pop();
-      const path = `community/${card.id}_${Date.now()}.${ext}`;
+      const path = `personal/${user.id}/${card.id}_${Date.now()}.${ext}`;
       const { error: uploadError } = await supabase.storage
         .from("card-images")
         .upload(path, file);
@@ -160,19 +161,27 @@ function UploadModal({ card, onClose, onUploaded }: {
         .from("card-images")
         .getPublicUrl(path);
 
-      const { error: insertError } = await supabase
-        .from("community_images")
-        .insert({
+      const publicUrl = urlData.publicUrl;
+
+      // Always save to personal images (upsert in case they're replacing)
+      const { error: personalError } = await supabase
+        .from("personal_card_images")
+        .upsert({ user_id: user.id, checklist_id: card.id, image_url: publicUrl }, { onConflict: "user_id,checklist_id" });
+
+      if (personalError) throw personalError;
+
+      // Only submit to community queue if there's no official image
+      if (!card.image_url) {
+        await supabase.from("community_images").insert({
           checklist_id: card.id,
-          image_url: urlData.publicUrl,
+          image_url: publicUrl,
           uploaded_by: user.id,
           username,
           status: "pending",
         });
+      }
 
-      if (insertError) throw insertError;
-
-      setMessage("Uploaded! Your photo will appear once approved.");
+      setMessage(card.image_url ? "Photo saved to your binder!" : "Uploaded! Also submitted for community review.");
       setTimeout(() => { onUploaded(); onClose(); }, 1500);
     } catch (err: any) {
       setMessage(`Error: ${err.message}`);
@@ -189,7 +198,10 @@ function UploadModal({ card, onClose, onUploaded }: {
           #{card.card_number} - {card.player_name}
         </p>
         <p className="mt-2 text-xs text-[rgba(28,25,23,0.4)]">
-          Upload your own photo of this card. It will be reviewed before appearing publicly. Your username will be credited.
+          {card.image_url
+            ? "Your photo will show in your binder only. It won't affect other users."
+            : "Your photo will show in your binder immediately. It will also be submitted for community review — if approved, it shows for everyone."
+          }
         </p>
 
         <input ref={fileRef} type="file" accept="image/*" className="mt-4 w-full text-sm" />
@@ -276,7 +288,7 @@ export function BinderView() {
     const checklistIds = checklistData.map((c) => c.id);
 
     // Run all remaining queries in parallel
-    const [progressResult, cardsResult, communityResult] = await Promise.all([
+    const [progressResult, cardsResult, communityResult, personalResult] = await Promise.all([
       user
         ? supabase
             .from("user_binder_progress")
@@ -286,13 +298,21 @@ export function BinderView() {
         : Promise.resolve({ data: null }),
       supabase
         .from("cards")
-        .select("card_number, image_url, image_front, stock, set_name")
-        .eq("set_name", activeSet?.title || ""),
+        .select("card_number, image_url, image_front, stock, set_name, is_base_variant")
+        .eq("set_name", activeSet?.title || "")
+        .order("is_base_variant", { ascending: false }),
       supabase
         .from("community_images")
         .select("checklist_id, image_url, username")
         .eq("status", "approved")
         .in("checklist_id", checklistIds),
+      user
+        ? supabase
+            .from("personal_card_images")
+            .select("checklist_id, image_url")
+            .eq("user_id", user.id)
+            .in("checklist_id", checklistIds)
+        : Promise.resolve({ data: null }),
     ]);
 
     const collectedSet = new Set<string>(
@@ -300,14 +320,17 @@ export function BinderView() {
     );
     const cardsData = cardsResult.data;
     const communityData = communityResult.data;
+    const personalData = personalResult.data;
 
     const cardLookup = new Map<string, { image_url: string | null; stock: number }>();
     if (cardsData) {
       for (const c of cardsData) {
-        cardLookup.set(c.card_number, {
-          image_url: c.image_url || c.image_front || null,
-          stock: c.stock || 0,
-        });
+        if (!cardLookup.has(c.card_number)) {
+          cardLookup.set(c.card_number, {
+            image_url: c.image_url || c.image_front || null,
+            stock: c.stock || 0,
+          });
+        }
       }
     }
 
@@ -320,6 +343,13 @@ export function BinderView() {
       }
     }
 
+    const personalLookup = new Map<string, string>();
+    if (personalData) {
+      for (const p of personalData) {
+        personalLookup.set(p.checklist_id, p.image_url);
+      }
+    }
+
     const merged: ChecklistCard[] = checklistData.map((item) => {
       const match = cardLookup.get(item.card_number);
       const community = communityLookup.get(item.id);
@@ -329,6 +359,7 @@ export function BinderView() {
         stock: match?.stock || 0,
         community_image: community?.image_url || null,
         community_credit: community?.username || null,
+        personal_image: personalLookup.get(item.id) || null,
         collected: collectedSet.has(item.id),
       };
     });
@@ -668,12 +699,12 @@ export function BinderView() {
                         Sign in to collect
                       </a>
                     )}
-                    {user && !selectedCard.image_url && (
+                    {user && (
                       <button
                         onClick={() => setUploadCard(selectedCard)}
                         className="flex-1 rounded-xl py-3 text-[13px] font-semibold text-[var(--gold-600)] border border-[rgba(200,155,60,0.25)]"
                       >
-                        Upload photo
+                        {selectedCard.personal_image ? "Replace photo" : "Upload photo"}
                       </button>
                     )}
                   </div>
@@ -691,10 +722,10 @@ export function BinderView() {
 
               <div className="p-4">
                 <div className={`relative h-52 overflow-hidden rounded-xl ${!selectedCard.collected ? "grayscale-[60%] opacity-80" : ""} transition-all duration-300`}>
-                  {(selectedCard.image_url || selectedCard.community_image) ? (
+                  {(selectedCard.personal_image || selectedCard.image_url || selectedCard.community_image) ? (
                     <>
-                      <img src={(selectedCard.image_url || selectedCard.community_image)!} alt={selectedCard.player_name} className="h-full w-full object-contain" />
-                      {selectedCard.community_credit && !selectedCard.image_url && (
+                      <img src={(selectedCard.personal_image || selectedCard.image_url || selectedCard.community_image)!} alt={selectedCard.player_name} className="h-full w-full object-contain" />
+                      {selectedCard.community_credit && !selectedCard.image_url && !selectedCard.personal_image && (
                         <p className="absolute bottom-2 right-2 rounded-full bg-black/60 px-2 py-0.5 text-[9px] text-white">
                           Photo: {selectedCard.community_credit}
                         </p>
@@ -725,13 +756,13 @@ export function BinderView() {
                 )}
 
                 {/* Upload button */}
-                {user && !selectedCard.image_url && (
+                {user && (
                   <button
                     onClick={() => setUploadCard(selectedCard)}
                     className="mt-2 w-full rounded-xl py-2 text-[12px] font-semibold text-[var(--gold-600)] transition hover:bg-[rgba(200,155,60,0.06)]"
                     style={{ border: "1px solid rgba(200,155,60,0.25)" }}
                   >
-                    Upload a photo
+                    {selectedCard.personal_image ? "Replace photo" : "Upload a photo"}
                   </button>
                 )}
               </div>

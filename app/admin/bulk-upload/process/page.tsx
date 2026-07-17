@@ -341,7 +341,7 @@ export default function ProcessBatchPage() {
 
     const { data: existing } = await supabase
       .from("cards")
-      .select("id, stock")
+      .select("id, stock, variant_group_id, parallel")
       .eq("title", safeTitle)
       .eq("set_name", safeSet)
       .eq("card_number", safeCardNum)
@@ -355,6 +355,24 @@ export default function ProcessBatchPage() {
         .eq("id", existing.id);
       if (updateErr) { setError(updateErr.message); setSaving(false); return; }
     } else {
+      // Find any existing card with same card_number + set_name to get/create variant_group_id
+      const { data: sibling } = await supabase
+        .from("cards")
+        .select("id, variant_group_id")
+        .eq("set_name", safeSet)
+        .eq("card_number", safeCardNum)
+        .limit(1)
+        .single();
+
+      let groupId: string | null = sibling?.variant_group_id ?? null;
+
+      // If sibling exists but has no group id yet, create one and assign it to the sibling too
+      if (sibling && !groupId) {
+        groupId = crypto.randomUUID();
+        await supabase.from("cards").update({ variant_group_id: groupId, is_base_variant: true }).eq("id", sibling.id);
+      }
+
+      const isBase = !parallel.trim();
       const slug = `${safeTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")}-${safeCardNum.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}`;
       const { error: insertErr } = await supabase.from("cards").insert([{
         title: safeTitle,
@@ -374,6 +392,8 @@ export default function ProcessBatchPage() {
         season: season.trim() || null,
         parallel: parallel.trim() || null,
         print_run: printRun.trim() || null,
+        variant_group_id: groupId,
+        is_base_variant: isBase,
       }]);
       if (insertErr) { setError(insertErr.message); setSaving(false); return; }
     }
@@ -383,6 +403,7 @@ export default function ProcessBatchPage() {
     setCardNumber("");
     setPrice("");
     setStock("1");
+    setParallel("");
     setPrintRun("");
     setOcrRawText("");
     setMatchConfidence("");
