@@ -29,17 +29,16 @@ export default async function CatalogueCardPage({ params }: Props) {
 
   if (!data) notFound();
 
-  // Fetch variants if this card has a variant_group_id
+  // Fetch variants by matching card_number + set_name where parallel is not null
   let variantRows: any[] = [];
-  if (data.variant_group_id) {
-    const { data: vData } = await supabase
-      .from("cards")
-      .select("id, player, card_number, parallel, price, stock, stock_status, image_url, print_run, is_base_variant")
-      .eq("variant_group_id", data.variant_group_id)
-      .eq("status", "published")
-      .order("is_base_variant", { ascending: false });
-    variantRows = vData ?? [];
-  }
+  const { data: vData } = await supabase
+    .from("cards")
+    .select("id, player, card_number, parallel, price, stock, stock_status, image_url, print_run")
+    .eq("card_number", data.card_number)
+    .eq("set_name", data.set_name)
+    .eq("status", "published")
+    .not("parallel", "is", null);
+  variantRows = vData ?? [];
 
   const rawStock = Number(data.stock ?? data.quantity);
   const availableQuantity = Number.isFinite(rawStock) ? Math.max(0, rawStock) : undefined;
@@ -72,19 +71,19 @@ export default async function CatalogueCardPage({ params }: Props) {
     const avail = Number.isFinite(rawS) ? Math.max(0, rawS) : undefined;
     return {
       id: v.id,
-      parallel: v.parallel ?? "Base",
+      parallel: v.parallel,
       price: Number(v.price ?? 0),
       imageUrl: v.image_url ?? null,
       printRun: v.print_run ?? null,
       stockStatus: v.stock_status ?? (avail === undefined ? "In stock" : avail > 0 ? "In stock" : "Out of stock"),
       availableQuantity: avail,
-      isBase: Boolean(v.is_base_variant),
+      isBase: false,
     };
   });
 
   const relatedCards = cards
-    .filter((item) => item.id !== data.id && Boolean(item.is_base_variant !== false))
-    .filter((item) => (item.set_name ?? item.setName ?? "") === (data.set_name ?? data.setName ?? ""))
+    .filter((item) => item.id !== data.id && !item.parallel)
+    .filter((item) => (item.set_name ?? "") === (data.set_name ?? ""))
     .slice(0, 4)
     .map((item) => {
       const { setSlug: relatedSetSlug, cardSlug: relatedCardSlug } = buildPublicCardSlugs({

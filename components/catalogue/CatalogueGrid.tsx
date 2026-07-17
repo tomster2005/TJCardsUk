@@ -29,7 +29,7 @@ export function CatalogueGrid() {
   const options = useMemo(() => ({
     sets: Array.from(new Set(cards.map((c) => c.setName))).sort(),
     teams: Array.from(new Set(cards.map((c) => c.team))).filter(Boolean).sort(),
-    parallels: Array.from(new Set(cards.map((c) => (c as any).parallel).filter(Boolean))).sort(),
+    parallels: Array.from(new Set(cards.map((c) => c.parallel).filter(Boolean))).sort(),
   }), [cards]);
 
   useEffect(() => {
@@ -38,10 +38,22 @@ export function CatalogueGrid() {
     let mounted = true;
     setIsLoading(true);
     (async () => {
-      const { data, error } = await supabase.from("cards").select("*").eq("status", "published").eq("is_base_variant", true).order("card_number", { ascending: true });
+      const { data, error } = await supabase.from("cards").select("*").eq("status", "published").order("card_number", { ascending: true });
       if (!mounted) return;
       if (error) { setLoadError(error.message); setIsLoading(false); return; }
-      const mapped = (data ?? []).map((d: any) => {
+
+      // Deduplicate: one card per card_number+set_name, prefer no parallel (base)
+      const seen = new Map<string, any>();
+      for (const d of (data ?? [])) {
+        const key = `${d.set_name ?? ""}__${d.card_number ?? ""}`;
+        const existing = seen.get(key);
+        if (!existing || (!d.parallel && existing.parallel)) {
+          seen.set(key, d);
+        }
+      }
+      const deduped = Array.from(seen.values());
+
+      const mapped = (deduped).map((d: any) => {
         const setName = d.set_name ?? d.setName ?? "";
         const title = d.title ?? d.player ?? "";
         const cardNumber = d.card_number ?? d.cardNumber ?? "";
@@ -58,6 +70,7 @@ export function CatalogueGrid() {
           estimatedValue: Number(d.estimated_value ?? 0), marketplacePrice: Number(d.marketplace_price ?? 0),
           population: Number(d.population ?? 0),
           isOneOfOne: Boolean(d.is_one_of_one ?? false),
+          parallel: d.parallel ?? "",
           slug: d.slug ?? "", setSlug, cardSlug,
         };
       });
@@ -74,7 +87,7 @@ export function CatalogueGrid() {
         if (q && !c.playerName.toLowerCase().includes(q) && !c.team.toLowerCase().includes(q) && !c.setName.toLowerCase().includes(q) && !c.cardNumber.toLowerCase().includes(q)) return false;
         if (setFilter !== "all" && c.setName !== setFilter) return false;
         if (teamFilter !== "all" && c.team !== teamFilter) return false;
-        if (parallelFilter !== "all" && (c as any).parallel !== parallelFilter) return false;
+        if (parallelFilter !== "all" && (c.parallel ?? "") !== parallelFilter) return false;
         if (inStockOnly && c.stockStatus !== "In stock") return false;
         return true;
       })

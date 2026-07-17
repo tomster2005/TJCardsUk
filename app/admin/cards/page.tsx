@@ -19,6 +19,7 @@ type CardRow = {
   image_url?: string;
   slug?: string;
   team?: string;
+  parallel?: string;
 };
 
 type BulkAction = "publish" | "unpublish" | "set_name" | "price" | "stock" | "delete" | null;
@@ -35,6 +36,7 @@ export default function CardsPage() {
   const [bulkLoading, setBulkLoading] = useState(false);
   const [filterSet, setFilterSet] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
+  const [filterParallel, setFilterParallel] = useState("all");
   const [search, setSearch] = useState("");
 
   useEffect(() => {
@@ -61,6 +63,7 @@ export default function CardsPage() {
   const filteredCards = cards.filter((c) => {
     if (filterSet !== "all" && c.set_name !== filterSet) return false;
     if (filterStatus !== "all" && c.status !== filterStatus) return false;
+    if (filterParallel !== "all" && (c.parallel || "") !== filterParallel) return false;
     if (search) {
       const q = search.toLowerCase();
       if (
@@ -74,6 +77,7 @@ export default function CardsPage() {
   });
 
   const sets = Array.from(new Set(cards.map((c) => c.set_name).filter(Boolean))).sort();
+  const parallels = Array.from(new Set(cards.map((c) => c.parallel).filter(Boolean))).sort();
   const allSelected = filteredCards.length > 0 && filteredCards.every((c) => selected.has(c.id));
 
   function toggleAll() {
@@ -190,6 +194,12 @@ export default function CardsPage() {
           <option value="published">Published</option>
           <option value="draft">Draft</option>
         </select>
+        {parallels.length > 0 && (
+          <select value={filterParallel} onChange={(e) => setFilterParallel(e.target.value)} className="rounded-xl border border-slate-300/60 bg-white px-3 py-2.5 text-sm">
+            <option value="all">All parallels</option>
+            {parallels.map((p) => <option key={p} value={p!}>{p}</option>)}
+          </select>
+        )}
       </div>
 
       {/* Bulk Action Toolbar */}

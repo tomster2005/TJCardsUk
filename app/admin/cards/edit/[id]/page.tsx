@@ -14,6 +14,9 @@ type EditableCard = {
   price: number;
   stock: number;
   status: string;
+  parallel: string;
+  image_url: string;
+  back_image_url: string;
 };
 
 export default function EditCardPage() {
@@ -57,6 +60,9 @@ export default function EditCardPage() {
         price: Number(data.price ?? 0),
         stock: Number(data.stock ?? 0),
         status: data.status ?? "draft",
+        parallel: data.parallel ?? "",
+        image_url: data.image_url ?? "",
+        back_image_url: data.back_image_url ?? "",
       });
       setIsLoadingCard(false);
     })();
@@ -94,7 +100,7 @@ export default function EditCardPage() {
     setIsSaving(true);
     setSubmitError(null);
 
-    const payload = {
+    const payload: any = {
       title: activeCard.title.trim(),
       player: activeCard.player.trim() || activeCard.title.trim(),
       set_name: activeCard.set_name.trim(),
@@ -102,7 +108,35 @@ export default function EditCardPage() {
       price: Number(activeCard.price),
       stock: Number(activeCard.stock),
       status: activeCard.status === "published" ? "published" : "draft",
+      parallel: activeCard.parallel.trim() || null,
+      image_url: activeCard.image_url.trim() || null,
+      image_front: activeCard.image_url.trim() || null,
+      back_image_url: activeCard.back_image_url.trim() || null,
+      image_back: activeCard.back_image_url.trim() || null,
+      is_base_variant: !activeCard.parallel.trim(),
     };
+
+    const isVariant = Boolean(activeCard.parallel.trim());
+
+    if (isVariant) {
+      const { data: baseCard } = await supabase
+        .from("cards")
+        .select("id, variant_group_id")
+        .eq("card_number", activeCard.card_number.trim())
+        .eq("set_name", activeCard.set_name.trim())
+        .is("parallel", null)
+        .limit(1)
+        .single();
+
+      if (baseCard) {
+        if (!baseCard.variant_group_id) {
+          await supabase.from("cards").update({ variant_group_id: baseCard.id }).eq("id", baseCard.id);
+        }
+        payload.variant_group_id = baseCard.variant_group_id || baseCard.id;
+      }
+    } else {
+      payload.variant_group_id = activeCard.id;
+    }
 
     const { error } = await supabase.from("cards").update(payload).eq("id", activeCard.id);
 
@@ -164,6 +198,25 @@ export default function EditCardPage() {
               </select>
             </label>
           </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="block">
+              <span className="text-sm text-zinc-700">Parallel</span>
+              <input value={card.parallel} onChange={(e) => setCard((cur) => (cur ? { ...cur, parallel: e.target.value } : cur))} placeholder="e.g. Refractor, Prizm..." className="mt-2 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
+            </label>
+          </div>
+
+          <label className="block">
+            <span className="text-sm text-zinc-700">Front image URL</span>
+            <input value={card.image_url} onChange={(e) => setCard((cur) => (cur ? { ...cur, image_url: e.target.value } : cur))} placeholder="https://..." className="mt-2 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none font-mono text-xs" />
+          </label>
+
+          <label className="block">
+            <span className="text-sm text-zinc-700">Back image URL</span>
+            <input value={card.back_image_url} onChange={(e) => setCard((cur) => (cur ? { ...cur, back_image_url: e.target.value } : cur))} placeholder="https://..." className="mt-2 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none font-mono text-xs" />
+          </label>
+
+          <p className="text-xs text-zinc-400">Cards with no parallel show in the catalogue. Cards with a parallel are variants.</p>
 
           {submitError ? (
             <div className="rounded-2xl border border-red-400/30 bg-red-500/10 p-3 text-sm text-red-200">
