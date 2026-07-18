@@ -11,6 +11,7 @@ type BinderSet = {
   total_cards: number;
   slug: string;
   created_at: string;
+  is_active: boolean;
 };
 
 export default function AdminBindersPage() {
@@ -140,6 +141,13 @@ export default function AdminBindersPage() {
     }
   }
 
+  async function handleToggleActive(id: string, current: boolean) {
+    const supabase = getBrowserSupabase();
+    if (!supabase) return;
+    await supabase.from("binder_sets").update({ is_active: !current }).eq("id", id);
+    loadSets();
+  }
+
   async function handleDelete(id: string) {
     if (!confirm("Delete this binder set and all its checklist data?")) return;
     const supabase = getBrowserSupabase();
@@ -235,12 +243,22 @@ export default function AdminBindersPage() {
                   <p className="font-bold text-[#1c1917]">{s.title}</p>
                   <p className="text-xs text-[rgba(28,25,23,0.5)]">{s.total_cards} cards · {Math.ceil(s.total_cards / 9)} pages</p>
                 </div>
-                <button
-                  onClick={() => handleDelete(s.id)}
-                  className="rounded-lg px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50"
-                >
-                  Delete
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleToggleActive(s.id, s.is_active)}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                      s.is_active ? "bg-green-50 text-green-700 hover:bg-green-100" : "bg-zinc-100 text-zinc-500 hover:bg-zinc-200"
+                    }`}
+                  >
+                    {s.is_active ? "Active" : "Hidden"}
+                  </button>
+                  <button
+                    onClick={() => handleDelete(s.id)}
+                    className="rounded-lg px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50"
+                  >
+                    Delete
+                  </button>
+                </div>
               </div>
             ))}
           </div>

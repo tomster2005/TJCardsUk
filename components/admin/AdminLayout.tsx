@@ -22,6 +22,7 @@ const adminNavGroups = [
       { href: "/admin/bulk-upload", label: "Bulk Upload" },
       { href: "/admin/image-queue", label: "Image Queue" },
       { href: "/admin/binders", label: "Binders" },
+      { href: "/admin/user-binders", label: "User Binders" },
       { href: "/admin/community-images", label: "Community Images" },
     ],
   },

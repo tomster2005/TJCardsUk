@@ -1,0 +1,50 @@
+  const tabBar = (
+    <div className="flex gap-2">
+      {(["official", "custom"] as const).map((t) => (
+        <button
+          key={t}
+          onClick={() => setBinderTab(t)}
+          className={`rounded-full px-4 py-1.5 text-sm font-semibold transition ${binderTab === t ? "btn-gold" : "border border-[var(--vault-border)] text-[rgba(28,25,23,0.6)]"}`}
+        >
+          {t === "official" ? "Official Binders" : "My Binders"}
+        </button>
+      ))}
+    </div>
+  );
+
+  if (loading) {
+    return <VaultLoader message="Loading binders..." />;
+  }
+
+  if (binderTab === "custom") {
+    return (
+      <div className="space-y-6">
+        {tabBar}
+        <UserBindersView />
+      </div>
+    );
+  }
+
+  if (sets.length === 0) {
+    return (
+      <div className="space-y-6">
+        {tabBar}
+        <EmptyState
+          icon="📖"
+          title="No binders available yet"
+          description="Binder sets are added by the admin. Check back soon for new sets to collect."
+          actions={[
+            { label: "Browse catalogue", href: "/catalogue", primary: true },
+            { label: "Back to dashboard", href: "/dashboard" },
+          ]}
+        />
+      </div>
+    );
+  }
+
+  // Binder selection screen
+  if (!activeSetId) {
+    return (
+      <div className="space-y-6 animate-fade-up">
+        {tabBar}
+        <div className="space-y-10">

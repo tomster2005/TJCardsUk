@@ -6,6 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { VaultLoader } from "@/components/VaultLoader";
 import { EmptyState } from "@/components/EmptyState";
 import HTMLFlipBook from "react-pageflip";
+import { UserBindersView } from "./UserBinders";
 
 type BinderSet = {
   id: string;
@@ -13,6 +14,7 @@ type BinderSet = {
   description: string | null;
   total_cards: number;
   slug: string;
+  is_active: boolean;
 };
 
 type ChecklistCard = {
@@ -31,11 +33,12 @@ type ChecklistCard = {
   collected: boolean;
 };
 
-function PocketCell({ card, isActive, onSelect, onToggleCollected }: {
+function PocketCell({ card, isActive, onSelect, onToggleCollected, dimmed }: {
   card: ChecklistCard;
   isActive: boolean;
   onSelect: () => void;
   onToggleCollected: () => void;
+  dimmed?: boolean;
 }) {
   const displayImage = card.personal_image || card.image_url || card.community_image;
   const hasImage = !!displayImage;
@@ -46,7 +49,7 @@ function PocketCell({ card, isActive, onSelect, onToggleCollected }: {
       onClick={onSelect}
       className={`relative aspect-[2.5/3.5] min-h-[85px] w-full overflow-hidden rounded-lg transition-all duration-280 focus:outline-none touch-manipulation ${
         !hasImage ? "pocket-empty" : "pocket-filled"
-      }`}
+      } ${dimmed ? "opacity-25 scale-95" : ""}`}
       style={isActive ? { outline: "2px solid #c89b3c", outlineOffset: "2px" } : {}}
     >
       {!hasImage ? (
@@ -75,7 +78,7 @@ function PocketCell({ card, isActive, onSelect, onToggleCollected }: {
             )}
           </div>
           {card.collected && (
-            <span className="absolute left-1 top-1 rounded-full bg-[rgba(34,197,94,0.9)] px-1.5 py-0.5 text-[7px] font-black text-white">✓</span>
+            <span className="absolute left-1 top-1 rounded-full bg-[rgba(34,197,94,0.9)] px-1.5 py-0.5 text-[7px] font-black text-white">?</span>
           )}
           {!card.collected && card.stock > 0 && (
             <span className="absolute right-1 top-1 rounded-full px-1.5 py-0.5 text-[7px] font-black text-[#0d0d0f]" style={{ background: "linear-gradient(135deg, #f5d97a, #c89b3c)" }}>{card.stock}x</span>
@@ -94,7 +97,8 @@ const BinderPage = forwardRef<HTMLDivElement, {
   selectedCard: ChecklistCard | null;
   onSelectCard: (card: ChecklistCard | null) => void;
   onToggleCollected: (card: ChecklistCard) => void;
-}>(({ pageNum, totalPages, cards, collectedOnPage, selectedCard, onSelectCard, onToggleCollected }, ref) => (
+  searchQuery?: string;
+}>(({ pageNum, totalPages, cards, collectedOnPage, selectedCard, onSelectCard, onToggleCollected, searchQuery }, ref) => (
   <div ref={ref} className="binder-page h-full p-5 pb-8" style={{ background: "#f5f0e8" }}>
     <div className="mb-3 flex items-center justify-between">
       <p className="text-[9px] font-bold uppercase tracking-[0.25em] text-[rgba(100,100,100,0.7)]">Page {pageNum} of {totalPages}</p>
@@ -108,6 +112,7 @@ const BinderPage = forwardRef<HTMLDivElement, {
           isActive={card.id === selectedCard?.id}
           onSelect={() => onSelectCard(card.id === selectedCard?.id ? null : card)}
           onToggleCollected={() => onToggleCollected(card)}
+          dimmed={!!searchQuery && !card.player_name.toLowerCase().includes(searchQuery.toLowerCase()) && !card.card_number.includes(searchQuery)}
         />
       ))}
       {cards.length === 0 && (
@@ -170,6 +175,12 @@ function UploadModal({ card, onClose, onUploaded }: {
 
       if (personalError) throw personalError;
 
+      // Auto-mark as collected on upload
+      await supabase
+        .from("user_binder_progress")
+        .upsert({ user_id: user.id, checklist_id: card.id }, { onConflict: "user_id,checklist_id" });
+
+
       // Only submit to community queue if there's no official image
       if (!card.image_url) {
         await supabase.from("community_images").insert({
@@ -227,6 +238,7 @@ function UploadModal({ card, onClose, onUploaded }: {
 
 export function BinderView() {
   const { user } = useAuth();
+  const [binderTab, setBinderTab] = useState<"official" | "custom">("official");
   const [sets, setSets] = useState<BinderSet[]>([]);
   const [activeSetId, setActiveSetId] = useState<string | null>(null);
   const [checklist, setChecklist] = useState<ChecklistCard[]>([]);
@@ -237,6 +249,9 @@ export function BinderView() {
   const [currentPage, setCurrentPage] = useState(0);
   const [toggling, setToggling] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [binderSearch, setBinderSearch] = useState("");
+  const [hiddenSetIds, setHiddenSetIds] = useState<Set<string>>(new Set());
+  const [showMissing, setShowMissing] = useState(false);
   const bookRef = useRef<any>(null);
 
   useEffect(() => {
@@ -250,10 +265,12 @@ export function BinderView() {
     async function load() {
       const supabase = getBrowserSupabase();
       if (!supabase) return;
-      const { data } = await supabase.from("binder_sets").select("*").order("created_at", { ascending: false });
-      if (data && data.length > 0) {
-        setSets(data);
-      }
+      const [setsResult, hiddenResult] = await Promise.all([
+        supabase.from("binder_sets").select("*").eq("is_active", true).order("created_at", { ascending: false }),
+        user ? supabase.from("user_binder_hidden").select("set_id").eq("user_id", user.id) : Promise.resolve({ data: null }),
+      ]);
+      if (setsResult.data && setsResult.data.length > 0) setSets(setsResult.data);
+      if (hiddenResult.data) setHiddenSetIds(new Set(hiddenResult.data.map((r: any) => r.set_id)));
       setLoading(false);
     }
     load();
@@ -370,6 +387,19 @@ export function BinderView() {
     setChecklistLoading(false);
   }
 
+  async function toggleHideSet(setId: string) {
+    if (!user) return;
+    const supabase = getBrowserSupabase();
+    if (!supabase) return;
+    if (hiddenSetIds.has(setId)) {
+      await supabase.from("user_binder_hidden").delete().eq("user_id", user.id).eq("set_id", setId);
+      setHiddenSetIds((prev) => { const n = new Set(prev); n.delete(setId); return n; });
+    } else {
+      await supabase.from("user_binder_hidden").insert({ user_id: user.id, set_id: setId });
+      setHiddenSetIds((prev) => new Set(prev).add(setId));
+    }
+  }
+
   async function toggleCollected(card: ChecklistCard) {
     if (!user || toggling) return;
     setToggling(true);
@@ -419,6 +449,27 @@ export function BinderView() {
     setSelectedCard(null);
   }, []);
 
+  // Jump to the page containing the first search match (debounced)
+  useEffect(() => {
+    if (!binderSearch.trim()) return;
+    const timer = setTimeout(() => {
+      const q = binderSearch.toLowerCase();
+      const match = checklist.find((c) =>
+        c.player_name.toLowerCase().includes(q) || c.card_number.includes(q)
+      );
+      if (!match) return;
+      const targetPage = match.page_number - 1;
+      if (targetPage !== currentPage) {
+        if (isMobile) {
+          setCurrentPage(targetPage);
+        } else {
+          bookRef.current?.pageFlip()?.flip(targetPage);
+        }
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [binderSearch, checklist]);
+
   useEffect(() => {
     if (selectedCard && isMobile) {
       document.body.style.overflow = "hidden";
@@ -428,28 +479,56 @@ export function BinderView() {
     return () => { document.body.style.overflow = ""; };
   }, [selectedCard, isMobile]);
 
+  const tabBar = (
+    <div className="flex gap-2">
+      {(["official", "custom"] as const).map((t) => (
+        <button
+          key={t}
+          onClick={() => setBinderTab(t)}
+          className={`rounded-full px-4 py-1.5 text-sm font-semibold transition ${binderTab === t ? "btn-gold" : "border border-[var(--vault-border)] text-[rgba(28,25,23,0.6)]"}`}
+        >
+          {t === "official" ? "Official Binders" : "My Binders"}
+        </button>
+      ))}
+    </div>
+  );
+
   if (loading) {
     return <VaultLoader message="Loading binders..." />;
   }
 
+  if (binderTab === "custom") {
+    return (
+      <div className="space-y-6">
+        {tabBar}
+        <UserBindersView />
+      </div>
+    );
+  }
+
   if (sets.length === 0) {
     return (
-      <EmptyState
-        icon="ðŸ“–"
-        title="No binders available yet"
-        description="Binder sets are added by the admin. Check back soon for new sets to collect."
-        actions={[
-          { label: "Browse catalogue", href: "/catalogue", primary: true },
-          { label: "Back to dashboard", href: "/dashboard" },
-        ]}
-      />
+      <div className="space-y-6">
+        {tabBar}
+        <EmptyState
+          icon="??"
+          title="No binders available yet"
+          description="Binder sets are added by the admin. Check back soon for new sets to collect."
+          actions={[
+            { label: "Browse catalogue", href: "/catalogue", primary: true },
+            { label: "Back to dashboard", href: "/dashboard" },
+          ]}
+        />
+      </div>
     );
   }
 
   // Binder selection screen
   if (!activeSetId) {
     return (
-      <div className="space-y-10 animate-fade-up">
+      <div className="space-y-6 animate-fade-up">
+        {tabBar}
+        <div className="space-y-10">
         {/* Hero */}
         <div className="relative overflow-hidden rounded-3xl px-8 py-14 text-center" style={{ background: "linear-gradient(160deg, #0d0d0f 0%, #1a0e06 40%, #2d1a0a 70%, #0d0d0f 100%)", border: "1px solid rgba(200,155,60,0.15)" }}>
           {/* Animated grid overlay */}
@@ -475,51 +554,74 @@ export function BinderView() {
 
         {/* Binder cards */}
         <div className="mx-auto grid w-full max-w-4xl gap-5 sm:grid-cols-2">
-          {sets.map((s, idx) => (            <button
-              key={s.id}
-              onClick={() => setActiveSetId(s.id)}
-              className="group relative overflow-hidden rounded-2xl text-left transition-all duration-400 hover:-translate-y-2 hover:scale-[1.02]"
-              style={{ animationDelay: `${idx * 100}ms` }}
-            >
-              {/* Card background */}
-              <div className="absolute inset-0" style={{ background: "linear-gradient(145deg, #1a0e06 0%, #2d1a0a 30%, #3d2410 60%, #2d1a0a 100%)" }} />
-              {/* Leather texture */}
-              <div className="pointer-events-none absolute inset-0 opacity-30" style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='80' height='80' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.15'/%3E%3C/svg%3E\")" }} />
-              {/* Gold shimmer on hover */}
-              <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-500 group-hover:opacity-100" style={{ background: "linear-gradient(135deg, rgba(200,155,60,0.12) 0%, transparent 50%, rgba(200,155,60,0.08) 100%)" }} />
-              {/* Gold border glow on hover */}
-              <div className="pointer-events-none absolute inset-0 rounded-2xl opacity-0 transition-opacity duration-400 group-hover:opacity-100" style={{ boxShadow: "inset 0 0 0 1px rgba(200,155,60,0.4), 0 0 30px rgba(200,155,60,0.15)" }} />
-              {/* Default border */}
-              <div className="pointer-events-none absolute inset-0 rounded-2xl transition-opacity duration-400 group-hover:opacity-0" style={{ boxShadow: "inset 0 0 0 1px rgba(200,155,60,0.12)" }} />
-
-              <div className="relative z-10 p-6">
-                {/* Top row */}
-                <div className="flex items-start justify-between">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl" style={{ background: "linear-gradient(135deg, rgba(200,155,60,0.2), rgba(200,155,60,0.05))", border: "1px solid rgba(200,155,60,0.25)" }}>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#c89b3c" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" />
-                    </svg>
+          {sets.map((s, idx) => {
+            const isHidden = hiddenSetIds.has(s.id);
+            return (
+              <div key={s.id} className={`relative transition-opacity duration-300 ${isHidden ? "opacity-40" : "opacity-100"}`}>
+                <button
+                  onClick={() => !isHidden && setActiveSetId(s.id)}
+                  className={`group relative w-full overflow-hidden rounded-2xl text-left transition-all duration-400 ${isHidden ? "cursor-default" : "hover:-translate-y-2 hover:scale-[1.02]"}`}
+                  style={{ animationDelay: `${idx * 100}ms` }}
+                >
+                  <div className="absolute inset-0" style={{ background: "linear-gradient(145deg, #1a0e06 0%, #2d1a0a 30%, #3d2410 60%, #2d1a0a 100%)" }} />
+                  <div className="pointer-events-none absolute inset-0 opacity-30" style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='80' height='80' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.15'/%3E%3C/svg%3E\")" }} />
+                  <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-500 group-hover:opacity-100" style={{ background: "linear-gradient(135deg, rgba(200,155,60,0.12) 0%, transparent 50%, rgba(200,155,60,0.08) 100%)" }} />
+                  <div className="pointer-events-none absolute inset-0 rounded-2xl opacity-0 transition-opacity duration-400 group-hover:opacity-100" style={{ boxShadow: "inset 0 0 0 1px rgba(200,155,60,0.4), 0 0 30px rgba(200,155,60,0.15)" }} />
+                  <div className="pointer-events-none absolute inset-0 rounded-2xl transition-opacity duration-400 group-hover:opacity-0" style={{ boxShadow: "inset 0 0 0 1px rgba(200,155,60,0.12)" }} />
+                  <div className="relative z-10 p-6">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl" style={{ background: "linear-gradient(135deg, rgba(200,155,60,0.2), rgba(200,155,60,0.05))", border: "1px solid rgba(200,155,60,0.25)" }}>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#c89b3c" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" />
+                        </svg>
+                      </div>
+                      <span className="rounded-full px-2.5 py-1 text-[10px] font-bold text-[var(--gold-400)]" style={{ background: "rgba(200,155,60,0.1)", border: "1px solid rgba(200,155,60,0.2)" }}>
+                        {s.total_cards} cards
+                      </span>
+                    </div>
+                    <h3 className="mt-4 text-xl font-black text-white transition-colors group-hover:text-[var(--gold-300)]">{s.title}</h3>
+                    {s.description && <p className="mt-1.5 text-[12px] leading-relaxed text-[rgba(255,255,255,0.45)]">{s.description}</p>}
+                    <div className="mt-5 flex items-center justify-between gap-3">
+                      {isHidden ? (
+                        <p className="text-[12px] text-[rgba(255,255,255,0.3)]">Not collecting</p>
+                      ) : (
+                        <div className="flex items-center gap-2 text-[12px] font-bold text-[var(--gold-500)] transition-all duration-300 group-hover:gap-3">
+                          <span>Open binder</span>
+                          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="transition-transform duration-300 group-hover:translate-x-1">
+                            <path d="M5 3L9 7L5 11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                        </div>
+                      )}
+                      {user && (
+                        <button
+                          onClickCapture={(e) => { e.stopPropagation(); toggleHideSet(s.id); }}
+                          onClick={(e) => e.stopPropagation()}
+                          className="flex shrink-0 items-center gap-1.5"
+                          title={isHidden ? "Click to start collecting" : "Click to stop collecting"}
+                        >
+                          <span className="text-[10px] font-semibold" style={{ color: isHidden ? "rgba(255,255,255,0.3)" : "#c89b3c" }}>
+                            {isHidden ? "Off" : "Collecting"}
+                          </span>
+                          <div
+                            className="relative h-5 w-9 rounded-full transition-all duration-300"
+                            style={{ background: isHidden ? "rgba(255,255,255,0.1)" : "rgba(200,155,60,0.35)", border: `1px solid ${isHidden ? "rgba(255,255,255,0.15)" : "rgba(200,155,60,0.5)"}` }}
+                          >
+                            <div
+                              className="absolute top-0.5 h-4 w-4 rounded-full transition-all duration-300"
+                              style={{ left: isHidden ? "2px" : "calc(100% - 18px)", background: isHidden ? "rgba(255,255,255,0.3)" : "#c89b3c", boxShadow: isHidden ? "none" : "0 0 6px rgba(200,155,60,0.6)" }}
+                            />
+                          </div>
+                        </button>
+                      )}
+                    </div>
                   </div>
-                  <span className="rounded-full px-2.5 py-1 text-[10px] font-bold text-[var(--gold-400)]" style={{ background: "rgba(200,155,60,0.1)", border: "1px solid rgba(200,155,60,0.2)" }}>
-                    {s.total_cards} cards
-                  </span>
-                </div>
+                </button>
 
-                {/* Title */}
-                <h3 className="mt-4 text-xl font-black text-white transition-colors group-hover:text-[var(--gold-300)]">{s.title}</h3>
-                {s.description && <p className="mt-1.5 text-[12px] leading-relaxed text-[rgba(255,255,255,0.45)]">{s.description}</p>}
-
-                {/* Bottom CTA */}
-                <div className="mt-5 flex items-center gap-2 text-[12px] font-bold text-[var(--gold-500)] transition-all duration-300 group-hover:gap-3">
-                  <span>Open binder</span>
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="transition-transform duration-300 group-hover:translate-x-1">
-                    <path d="M5 3L9 7L5 11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                </div>
               </div>
-            </button>
-          ))}
+            );
+          })}
         </div>
+      </div>
       </div>
     );
   }
@@ -528,10 +630,10 @@ export function BinderView() {
     <div className="space-y-6 animate-fade-up">
 
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => { setActiveSetId(null); setChecklist([]); setSelectedCard(null); }}
+            onClick={() => { setActiveSetId(null); setChecklist([]); setSelectedCard(null); setBinderSearch(""); }}
             className="rounded-full p-2 text-[rgba(28,25,23,0.5)] transition hover:bg-[rgba(0,0,0,0.05)] hover:text-[#1c1917]"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 12L6 8L10 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
@@ -545,6 +647,25 @@ export function BinderView() {
 
         {/* Completion ring */}
         <div className="flex items-center gap-4">
+          {/* Search */}
+          <div className="relative">
+            <input
+              value={binderSearch}
+              onChange={(e) => setBinderSearch(e.target.value)}
+              placeholder="Search cards..."
+              className="rounded-full border border-[rgba(0,0,0,0.1)] bg-white py-2 pl-8 pr-3 text-[12px] text-[#1c1917] outline-none transition focus:border-[rgba(200,155,60,0.4)] w-36 sm:w-48"
+            />
+            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[rgba(28,25,23,0.3)]" width="12" height="12" viewBox="0 0 16 16" fill="none"><circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.5"/><path d="M10 10l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+            {binderSearch && (
+              <button onClick={() => setBinderSearch("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[rgba(28,25,23,0.3)] hover:text-[#1c1917]">?</button>
+            )}
+          </div>
+          <button
+              onClick={() => setShowMissing(true)}
+              className="rounded-full border border-[rgba(0,0,0,0.1)] bg-white px-3 py-2 text-[12px] font-semibold text-[rgba(28,25,23,0.6)] transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+            >
+              Missing ({checklist.filter(c => !c.collected).length})
+            </button>
           <div className="flex flex-col items-center gap-1">
             <svg width="52" height="52" viewBox="0 0 52 52">
               <circle cx="26" cy="26" r="20" fill="none" stroke="rgba(0,0,0,0.08)" strokeWidth="5" />
@@ -588,6 +709,7 @@ export function BinderView() {
                   selectedCard={selectedCard}
                   onSelectCard={setSelectedCard}
                   onToggleCollected={toggleCollected}
+                  searchQuery={binderSearch}
                 />
               )}
             </div>
@@ -631,6 +753,7 @@ export function BinderView() {
                     selectedCard={selectedCard}
                     onSelectCard={setSelectedCard}
                     onToggleCollected={toggleCollected}
+                    searchQuery={binderSearch}
                   />
                 ))}
               </HTMLFlipBook>
@@ -668,11 +791,10 @@ export function BinderView() {
           {selectedCard ? (
             <>
               {/* Mobile: bottom sheet */}
-              <div className="fixed inset-x-0 bottom-0 z-50 lg:hidden" style={{ animation: "slide-up 300ms cubic-bezier(0.22,1,0.36,1) both" }}>
-                <div className="relative rounded-t-3xl bg-white border-t border-[rgba(0,0,0,0.08)] shadow-[0_-8px_40px_rgba(0,0,0,0.15)] px-5 pt-3 pb-8">
+              <div className="fixed inset-x-4 z-50 lg:hidden" style={{ top: "50%", transform: "translateY(-50%)", animation: "slide-up 300ms cubic-bezier(0.22,1,0.36,1) both" }}>
+                <div className="relative rounded-3xl bg-white border border-[rgba(0,0,0,0.08)] shadow-[0_8px_40px_rgba(0,0,0,0.2)] px-5 pt-4 pb-6">
                   {/* Fade out at bottom */}
                   <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 rounded-b-none" style={{ background: "linear-gradient(to bottom, transparent, white)" }} />
-                  <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-zinc-200" />
                   <div className="flex items-start justify-between mb-4">
                     <div className="min-w-0 flex-1 pr-2">
                       <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-[var(--gold-500)]">Card Details</p>
@@ -751,7 +873,7 @@ export function BinderView() {
                         : "btn-gold"
                     }`}
                   >
-                    : "Mark as collected✓"
+                    : "Mark as collected?"
                   </button>
                 )}
 
@@ -790,6 +912,51 @@ export function BinderView() {
           )}
         </div>
       </div>
+
+      {/* Missing cards modal */}
+      {showMissing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShowMissing(false)}>
+          <div className="flex max-h-[80vh] w-full max-w-md flex-col rounded-2xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-[rgba(0,0,0,0.08)] px-5 py-4">
+              <div>
+                <h3 className="font-black text-[#1c1917]">Missing Cards</h3>
+                <p className="text-[12px] text-[rgba(28,25,23,0.5)]">{checklist.filter(c => !c.collected).length} cards still needed</p>
+              </div>
+              <button onClick={() => setShowMissing(false)} className="rounded-full p-2 text-zinc-400 hover:bg-zinc-100">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+              </button>
+            </div>
+            <div className="overflow-y-auto">
+              {checklist.filter(c => !c.collected).length === 0 ? (
+                <div className="py-12 text-center">
+                  <p className="text-2xl">🎉</p>
+                  <p className="mt-2 font-bold text-[#1c1917]">Complete set!</p>
+                  <p className="text-[12px] text-[rgba(28,25,23,0.5)]">You have every card in this binder.</p>
+                </div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-[rgba(0,0,0,0.06)] text-left">
+                      <th className="px-5 py-2.5 text-[10px] font-bold uppercase tracking-[0.2em] text-[rgba(28,25,23,0.4)]">#</th>
+                      <th className="px-5 py-2.5 text-[10px] font-bold uppercase tracking-[0.2em] text-[rgba(28,25,23,0.4)]">Player</th>
+                      <th className="px-5 py-2.5 text-[10px] font-bold uppercase tracking-[0.2em] text-[rgba(28,25,23,0.4)]">Parallel</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {checklist.filter(c => !c.collected).map((card) => (
+                      <tr key={card.id} className="border-b border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.02)]">
+                        <td className="px-5 py-2.5 font-mono text-[12px] text-[rgba(28,25,23,0.4)]">#{card.card_number}</td>
+                        <td className="px-5 py-2.5 font-semibold text-[#1c1917]">{card.player_name}</td>
+                        <td className="px-5 py-2.5 text-[12px] text-[rgba(28,25,23,0.5)]">{card.parallel || "Base"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Upload modal */}
       {uploadCard && (

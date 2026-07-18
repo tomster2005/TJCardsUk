@@ -8,7 +8,7 @@ import Link from "next/link";
 export default function LoginPage() {
   const { signIn, fetchRole } = useAuth();
   const router = useRouter();
-  const [email, setEmail] = useState("");
+  const [emailOrUsername, setEmailOrUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -17,6 +17,23 @@ export default function LoginPage() {
     e.preventDefault();
     setError(null);
     setLoading(true);
+
+    const { getBrowserSupabase } = await import("@/lib/supabase/client");
+    const supabase = getBrowserSupabase();
+    if (!supabase) { setLoading(false); return; }
+
+    // If input looks like an email use it directly, otherwise look up by username
+    let email = emailOrUsername.trim();
+    if (!email.includes("@")) {
+      const { data } = await supabase.rpc("get_email_by_username", { p_username: email });
+      if (!data) {
+        setError("No account found with that username.");
+        setLoading(false);
+        return;
+      }
+      email = data;
+    }
+
     const { error } = await signIn(email, password);
     if (error) {
       setError(error.message ?? String(error));
@@ -24,16 +41,12 @@ export default function LoginPage() {
       return;
     }
 
-    const { getBrowserSupabase } = await import("@/lib/supabase/client");
-    const supabase = getBrowserSupabase();
-    if (supabase) {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user?.id) {
-        const userRole = await fetchRole(user.id);
-        setLoading(false);
-        router.push(userRole === "admin" ? "/admin" : "/dashboard");
-        return;
-      }
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user?.id) {
+      const userRole = await fetchRole(user.id);
+      setLoading(false);
+      router.push(userRole === "admin" ? "/admin" : "/dashboard");
+      return;
     }
 
     setLoading(false);
@@ -68,15 +81,16 @@ export default function LoginPage() {
 
           <form onSubmit={submit} className="mt-6 space-y-4">
             <label className="block">
-              <span className="text-[12px] font-medium text-[rgba(255,255,255,0.6)]">Email</span>
+              <span className="text-[12px] font-medium text-[rgba(255,255,255,0.6)]">Email or Username</span>
               <input
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                type="email"
+                value={emailOrUsername}
+                onChange={(e) => setEmailOrUsername(e.target.value)}
+                type="text"
                 required
+                autoComplete="username"
                 className="mt-1.5 w-full rounded-xl px-4 py-3 text-sm text-white outline-none transition placeholder:text-[rgba(255,255,255,0.25)] focus:border-[rgba(200,155,60,0.5)]"
                 style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" }}
-                placeholder="you@example.com"
+                placeholder="you@example.com or username"
               />
             </label>
 
