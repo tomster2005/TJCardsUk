@@ -15,6 +15,7 @@ type EditableCard = {
   stock: number;
   status: string;
   parallel: string;
+  team: string;
   image_url: string;
   back_image_url: string;
 };
@@ -61,6 +62,7 @@ export default function EditCardPage() {
         stock: Number(data.stock ?? 0),
         status: data.status ?? "draft",
         parallel: data.parallel ?? "",
+        team: data.team ?? "",
         image_url: data.image_url ?? "",
         back_image_url: data.back_image_url ?? "",
       });
@@ -107,8 +109,9 @@ export default function EditCardPage() {
       card_number: activeCard.card_number.trim(),
       price: Number(activeCard.price),
       stock: Number(activeCard.stock),
-      status: activeCard.status === "published" ? "published" : "draft",
+      status: Number(activeCard.stock) <= 0 ? "draft" : (activeCard.status === "published" ? "published" : "draft"),
       parallel: activeCard.parallel.trim() || null,
+      team: activeCard.team.trim() || null,
       image_url: activeCard.image_url.trim() || null,
       image_front: activeCard.image_url.trim() || null,
       back_image_url: activeCard.back_image_url.trim() || null,
@@ -203,6 +206,10 @@ export default function EditCardPage() {
             <label className="block">
               <span className="text-sm text-zinc-700">Parallel</span>
               <input value={card.parallel} onChange={(e) => setCard((cur) => (cur ? { ...cur, parallel: e.target.value } : cur))} placeholder="e.g. Refractor, Prizm..." className="mt-2 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
+            </label>
+            <label className="block">
+              <span className="text-sm text-zinc-700">Team</span>
+              <input value={card.team} onChange={(e) => setCard((cur) => (cur ? { ...cur, team: e.target.value } : cur))} placeholder="e.g. Manchester United" className="mt-2 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
             </label>
           </div>
 

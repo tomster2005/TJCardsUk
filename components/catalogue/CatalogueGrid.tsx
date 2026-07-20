@@ -15,17 +15,23 @@ type SortOption = "cardNumber" | "playerName" | "priceLow" | "priceHigh";
 export function CatalogueGrid() {
   const cart = useCart();
   const [recentlyAddedCardId, setRecentlyAddedCardId] = useState<string | null>(null);
-  const [cards, setCards] = useState<CatalogueCard[]>([]); // base cards only for display
-  const [allParallels, setAllParallels] = useState<string[]>([]); // all parallel names across all variants
-  const [query, setQuery] = useState("");
-  const [setFilter, setSetFilter] = useState("all");
-  const [teamFilter, setTeamFilter] = useState("all");
-  const [parallelFilter, setParallelFilter] = useState("all");
-  const [inStockOnly, setInStockOnly] = useState(false);
-  const [sortBy, setSortBy] = useState<SortOption>("cardNumber");
+  const [cards, setCards] = useState<CatalogueCard[]>([]);
+  const [allParallels, setAllParallels] = useState<string[]>([]);
+
+  // Initialise filters directly from sessionStorage to avoid restore/save race
+  const [query, setQuery] = useState(() => { try { return JSON.parse(sessionStorage.getItem("catalogue_filters") ?? "{}").query ?? ""; } catch { return ""; } });
+  const [setFilter, setSetFilter] = useState(() => { try { return JSON.parse(sessionStorage.getItem("catalogue_filters") ?? "{}").setFilter ?? "all"; } catch { return "all"; } });
+  const [teamFilter, setTeamFilter] = useState(() => { try { return JSON.parse(sessionStorage.getItem("catalogue_filters") ?? "{}").teamFilter ?? "all"; } catch { return "all"; } });
+  const [parallelFilter, setParallelFilter] = useState(() => { try { return JSON.parse(sessionStorage.getItem("catalogue_filters") ?? "{}").parallelFilter ?? "all"; } catch { return "all"; } });
+  const [inStockOnly, setInStockOnly] = useState(() => { try { return JSON.parse(sessionStorage.getItem("catalogue_filters") ?? "{}").inStockOnly ?? false; } catch { return false; } });
+  const [sortBy, setSortBy] = useState<SortOption>(() => { try { return JSON.parse(sessionStorage.getItem("catalogue_filters") ?? "{}").sortBy ?? "cardNumber"; } catch { return "cardNumber"; } });
+  const [showFilters, setShowFilters] = useState(() => { try { const f = JSON.parse(sessionStorage.getItem("catalogue_filters") ?? "{}"); return f.setFilter !== "all" || f.teamFilter !== "all" || f.parallelFilter !== "all" || f.inStockOnly; } catch { return false; } });
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [showFilters, setShowFilters] = useState(false);
+
+  useEffect(() => {
+    sessionStorage.setItem("catalogue_filters", JSON.stringify({ query, setFilter, teamFilter, parallelFilter, inStockOnly, sortBy }));
+  }, [query, setFilter, teamFilter, parallelFilter, inStockOnly, sortBy]);
 
   const options = useMemo(() => ({
     sets: Array.from(new Set(cards.map((c) => c.setName))).sort(),
@@ -83,6 +89,7 @@ export function CatalogueGrid() {
           population: Number(d.population ?? 0),
           isOneOfOne: Boolean(d.is_one_of_one ?? false),
           parallel: d.parallel ?? "",
+          category: d.category ?? "",
           variantParallels: parallelsByKey.get(key) ?? [],
           slug: d.slug ?? "", setSlug, cardSlug,
         };
@@ -110,7 +117,7 @@ export function CatalogueGrid() {
         if (sortBy === "priceLow") return a.price - b.price;
         return (parseInt(a.cardNumber) || 0) - (parseInt(b.cardNumber) || 0);
       });
-  }, [cards, query, setFilter, teamFilter, inStockOnly, sortBy]);
+  }, [cards, query, setFilter, teamFilter, parallelFilter, inStockOnly, sortBy]);
 
   return (
     <div className="space-y-10">
@@ -243,7 +250,9 @@ export function CatalogueGrid() {
             const isOOS = hasStockCap ? avail <= 0 || card.stockStatus === "Out of stock" : card.stockStatus === "Out of stock";
             const maxed = hasStockCap && !isOOS && inCartQty >= avail;
             const justAdded = recentlyAddedCardId === card.id;
-            const isDisney = card.setName.toLowerCase().includes("disney");
+            const category = (card as any).category || "";
+            const categoryEmoji: Record<string, string> = { Football: "⚽", Rugby: "🏉", Cricket: "🏏", Disney: "✨", Basketball: "🏀", Baseball: "⚾", Other: "🃏" };
+            const badgeLabel = category ? `${categoryEmoji[category] ?? "🃏"} ${category}` : null;
 
             return (
               <article
@@ -279,15 +288,15 @@ export function CatalogueGrid() {
                     {card.imageUrl ? (
                       <img src={card.imageUrl} alt={`${card.playerName} card`} className="h-full w-full rounded-xl object-contain bg-slate-50 transition-transform duration-500 group-hover:scale-[1.03]" />
                     ) : (
-                      <div className="flex h-full flex-col items-center justify-center gap-3" style={{ background: isDisney ? "linear-gradient(135deg, #eff6ff, #dbeafe)" : "linear-gradient(135deg, #f0fdf4, #dcfce7)" }}>
-                        <span className="text-4xl opacity-30">{isDisney ? "✨" : "⚽"}</span>
+                      <div className="flex h-full flex-col items-center justify-center gap-3" style={{ background: category === "Disney" ? "linear-gradient(135deg, #eff6ff, #dbeafe)" : "linear-gradient(135deg, #f0fdf4, #dcfce7)" }}>
+                        <span className="text-4xl opacity-30">{categoryEmoji[category] ?? "🃏"}</span>
                         <p className="text-[11px] uppercase tracking-[0.25em] text-zinc-400">Card artwork</p>
                       </div>
                     )}
                     <div className="pointer-events-none absolute inset-0" />
 
-                    <span className={`absolute left-3 top-3 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.15em] ${isDisney ? "badge-disney" : "badge-football"}`}>
-                      {isDisney ? "✨ Disney" : "⚽ Football"}
+                    <span className={`absolute left-3 top-3 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.15em] ${category === "Disney" ? "badge-disney" : "badge-football"}`}>
+                      {badgeLabel ?? "🃏 Card"}
                     </span>
 
                     <span className={`absolute right-3 top-3 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.15em] ${card.stockStatus === "In stock" ? "badge-owned" : card.stockStatus === "Low stock" ? "badge-gold" : "badge-limited"}`}>

@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { getBrowserSupabase } from "@/lib/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import HTMLFlipBook from "react-pageflip";
+import { BinderPage, type ChecklistCard } from "./Binder";
 
 type UserBinder = {
   id: string;
@@ -185,6 +187,17 @@ function UserBinderView({ binder, onBack, isOwner }: { binder: UserBinder; onBac
   const [cards, setCards] = useState<UserBinderCard[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddCard, setShowAddCard] = useState(false);
+  const [currentPage, setCurrentPage] = useState(0);
+  const [isMobile, setIsMobile] = useState(false);
+  const [selectedCard, setSelectedCard] = useState<ChecklistCard | null>(null);
+  const bookRef = useRef<any>(null);
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
 
   useEffect(() => { loadCards(); }, [binder.id]);
 
@@ -207,83 +220,192 @@ function UserBinderView({ binder, onBack, isOwner }: { binder: UserBinder; onBac
     setCards((prev) => prev.filter((c) => c.id !== id));
   }
 
+  const onFlip = useCallback((e: any) => {
+    setCurrentPage(e.data);
+    setSelectedCard(null);
+  }, []);
+
+  // Map user binder cards to ChecklistCard shape
+  const checklistCards: ChecklistCard[] = cards.map((c, i) => ({
+    id: c.id,
+    card_number: c.card_number,
+    player_name: c.player_name,
+    team: null,
+    parallel: null,
+    page_number: Math.floor(i / 9) + 1,
+    position: (i % 9) + 1,
+    image_url: c.image_url,
+    stock: 0,
+    community_image: null,
+    community_credit: null,
+    personal_image: null,
+    collected: !!c.image_url,
+  }));
+
+  const totalPages = Math.max(1, Math.ceil(checklistCards.length / 9));
+  const pages: ChecklistCard[][] = [];
+  for (let i = 1; i <= totalPages; i++) {
+    pages.push(checklistCards.filter((c) => c.page_number === i));
+  }
+
   return (
     <div className="space-y-6 animate-fade-up">
-      <div className="flex items-center gap-3">
-        <button onClick={onBack} className="rounded-full p-2 text-[rgba(28,25,23,0.5)] transition hover:bg-[rgba(0,0,0,0.05)]">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 12L6 8L10 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-        </button>
-        <div className="flex-1">
-          <span className="text-[11px] font-bold uppercase tracking-[0.3em] text-[var(--gold-500)]">
-            {binder.published ? "Community Binder" : "My Binder"}
-          </span>
-          <h1 className="mt-1 text-2xl font-black text-[#1c1917] font-display">{binder.name}</h1>
-          <p className="mt-0.5 text-[13px] text-[rgba(28,25,23,0.5)]">{binder.set_name} · {binder.year}{binder.username ? ` · by ${binder.username}` : ""}</p>
+      {/* Header */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={onBack}
+            className="rounded-full p-2 text-[rgba(28,25,23,0.5)] transition hover:bg-[rgba(0,0,0,0.05)] hover:text-[#1c1917]"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 12L6 8L10 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          </button>
+          <div>
+            <span className="text-[11px] font-bold uppercase tracking-[0.3em] text-[var(--gold-500)]">{binder.published ? "Community Binder" : "My Binder"}</span>
+            <h1 className="mt-1 text-2xl font-black text-[#1c1917] font-display">{binder.name}</h1>
+            <p className="mt-0.5 text-[13px] text-[rgba(28,25,23,0.5)]">{cards.length} cards{binder.username ? ` · by ${binder.username}` : ""}</p>
+          </div>
         </div>
         {isOwner && (
-          <button onClick={() => setShowAddCard(true)} className="btn-gold rounded-full px-4 py-2 text-sm font-bold">
-            + Add Card
-          </button>
+          <button onClick={() => setShowAddCard(true)} className="btn-gold rounded-full px-4 py-2 text-sm font-bold">+ Add Card</button>
         )}
       </div>
 
       {loading ? (
-        <p className="text-sm text-[rgba(28,25,23,0.5)]">Loading cards...</p>
+        <div className="flex flex-col items-center justify-center gap-4 py-20">
+          <div className="h-10 w-10 animate-spin rounded-full border-4 border-[rgba(200,155,60,0.2)] border-t-[#c89b3c]" />
+        </div>
       ) : cards.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[rgba(200,155,60,0.3)] py-20 text-center">
           <p className="text-4xl opacity-20">📋</p>
           <p className="mt-3 font-bold text-[#1c1917]">No cards yet</p>
           {isOwner && (
-            <button onClick={() => setShowAddCard(true)} className="btn-gold mt-4 rounded-full px-5 py-2 text-sm font-bold">
-              + Add your first card
-            </button>
+            <button onClick={() => setShowAddCard(true)} className="btn-gold mt-4 rounded-full px-5 py-2 text-sm font-bold">+ Add your first card</button>
           )}
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {cards.map((card) => (
-            <div key={card.id} className="group relative overflow-hidden rounded-2xl border border-[var(--vault-border)] bg-white">
-              <div className="aspect-[2.5/3.5] overflow-hidden bg-[#f5f3ee]">
-                {card.image_url ? (
-                  <img src={card.image_url} alt={card.player_name} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
-                ) : (
-                  <div className="flex h-full items-center justify-center">
-                    <span className="text-4xl opacity-20">🃏</span>
-                  </div>
+        <div className="mx-auto grid w-full max-w-6xl gap-6 lg:grid-cols-[1fr_280px]">
+          {/* Binder pages */}
+          <div className="binder-cover mx-auto w-full rounded-2xl p-2 sm:rounded-3xl sm:p-3" style={{ boxShadow: "0 40px 100px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04)" }}>
+            {isMobile ? (
+              <div className="rounded-[1.3rem] overflow-hidden">
+                {pages[currentPage] && (
+                  <BinderPage
+                    pageNum={currentPage + 1}
+                    totalPages={totalPages}
+                    cards={pages[currentPage]}
+                    collectedOnPage={pages[currentPage].filter((c) => c.collected).length}
+                    selectedCard={selectedCard}
+                    onSelectCard={setSelectedCard}
+                    onToggleCollected={() => {}}
+                  />
                 )}
               </div>
-              <div className="p-3">
-                <p className="font-bold text-[#1c1917] text-sm truncate">{card.player_name}</p>
-                <p className="text-xs text-[rgba(28,25,23,0.5)]">#{card.card_number} · {card.set_name}</p>
-              </div>
-              {isOwner && (
-                <button
-                  onClick={() => deleteCard(card.id)}
-                  className="absolute right-2 top-2 rounded-full bg-white/90 p-1 text-red-400 opacity-0 transition group-hover:opacity-100 hover:text-red-600"
+            ) : (
+              <div className="flex justify-center overflow-hidden rounded-[1.3rem]">
+                {/* @ts-ignore */}
+                <HTMLFlipBook
+                  ref={bookRef}
+                  width={340} height={480} size="stretch"
+                  minWidth={280} maxWidth={400} minHeight={400} maxHeight={540}
+                  showCover={false} mobileScrollSupport={true} onFlip={onFlip}
+                  className="binder-flipbook" style={{}} startPage={0} drawShadow={true}
+                  flippingTime={600} usePortrait={false} startZIndex={0} autoSize={true}
+                  maxShadowOpacity={0.4} showPageCorners={true} disableFlipByClick={true}
+                  useMouseEvents={false} swipeDistance={30} clickEventForward={true}
                 >
-                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
-                </button>
-              )}
+                  {pages.map((pageCards, i) => (
+                    <BinderPage
+                      key={i}
+                      pageNum={i + 1}
+                      totalPages={totalPages}
+                      cards={pageCards}
+                      collectedOnPage={pageCards.filter((c) => c.collected).length}
+                      selectedCard={selectedCard}
+                      onSelectCard={setSelectedCard}
+                      onToggleCollected={() => {}}
+                    />
+                  ))}
+                </HTMLFlipBook>
+              </div>
+            )}
+            <div className="mt-4 flex items-center justify-between px-4 pb-2">
+              <button
+                type="button"
+                onClick={() => isMobile ? setCurrentPage(Math.max(0, currentPage - 1)) : bookRef.current?.pageFlip()?.flipPrev()}
+                className="rounded-full px-4 py-2 text-sm font-semibold text-[rgba(200,200,200,0.7)] transition hover:bg-[rgba(255,255,255,0.06)] hover:text-white"
+                style={{ border: "1px solid rgba(255,255,255,0.1)" }}
+              >Prev</button>
+              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[rgba(200,200,200,0.5)]">{currentPage + 1} of {totalPages}</p>
+              <button
+                type="button"
+                onClick={() => isMobile ? setCurrentPage(Math.min(totalPages - 1, currentPage + 1)) : bookRef.current?.pageFlip()?.flipNext()}
+                className="rounded-full px-4 py-2 text-sm font-semibold transition hover:-translate-y-0.5"
+                style={{ background: "linear-gradient(135deg, #f5d97a, #c89b3c)", color: "#0d0d0f", boxShadow: "0 2px 12px rgba(200,155,60,0.4)" }}
+              >Next</button>
             </div>
-          ))}
-          {isOwner && (
-            <button
-              onClick={() => setShowAddCard(true)}
-              className="flex aspect-[2.5/3.5] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[rgba(200,155,60,0.3)] text-[rgba(200,155,60,0.6)] transition hover:border-[rgba(200,155,60,0.6)] hover:text-[var(--gold-500)]"
-            >
-              <span className="text-3xl">+</span>
-              <span className="mt-1 text-xs font-semibold">Add card</span>
-            </button>
-          )}
+          </div>
+
+          {/* Details panel */}
+          <div>
+            {selectedCard ? (
+              <>
+                {/* Mobile: bottom sheet */}
+                <div className="fixed inset-x-4 z-50 lg:hidden" style={{ top: "50%", transform: "translateY(-50%)", animation: "slide-up 300ms cubic-bezier(0.22,1,0.36,1) both" }}>
+                  <div className="relative rounded-3xl bg-white border border-[rgba(0,0,0,0.08)] shadow-[0_8px_40px_rgba(0,0,0,0.2)] px-5 pt-4 pb-6">
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="min-w-0 flex-1 pr-2">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-[var(--gold-500)]">Card Details</p>
+                        <h3 className="mt-0.5 text-base font-black text-[#1c1917] truncate">{selectedCard.player_name}</h3>
+                        <p className="text-[12px] text-[rgba(28,25,23,0.5)]">#{selectedCard.card_number}</p>
+                      </div>
+                      <button onClick={() => setSelectedCard(null)} className="flex-shrink-0 rounded-full p-2 text-zinc-400 hover:bg-zinc-100">
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div className="fixed inset-0 z-40 lg:hidden" style={{ background: "rgba(0,0,0,0.2)" }} onClick={() => setSelectedCard(null)} />
+
+                {/* Desktop: sidebar */}
+                <aside className="hidden lg:block overflow-hidden rounded-2xl" style={{ background: "var(--vault-surface)", border: "1px solid var(--vault-border-hi)", boxShadow: "var(--shadow-sm)" }}>
+                  <div className="px-5 py-4" style={{ borderBottom: "1px solid var(--vault-border)" }}>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-[var(--gold-500)]">Card Details</p>
+                    <h3 className="mt-1 text-base font-black text-[#1c1917]">{selectedCard.player_name}</h3>
+                    <p className="text-[12px] text-[rgba(28,25,23,0.5)]">#{selectedCard.card_number}</p>
+                  </div>
+                  <div className="p-4">
+                    <div className="relative h-52 overflow-hidden rounded-xl transition-all duration-300">
+                      {selectedCard.image_url ? (
+                        <img src={selectedCard.image_url} alt={selectedCard.player_name} className="h-full w-full object-contain" />
+                      ) : (
+                        <div className="flex h-full flex-col items-center justify-center gap-2" style={{ background: "linear-gradient(135deg, #f0ede6, #e8e4dc)" }}>
+                          <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-[rgba(28,25,23,0.3)]">No image</p>
+                        </div>
+                      )}
+                    </div>
+                    {isOwner && (
+                      <button
+                        onClick={() => deleteCard(selectedCard.id)}
+                        className="mt-3 w-full rounded-xl border border-red-200 py-2.5 text-[12px] font-bold text-red-600 transition hover:bg-red-50"
+                      >
+                        Remove card
+                      </button>
+                    )}
+                  </div>
+                </aside>
+              </>
+            ) : (
+              <div className="flex h-full min-h-[280px] flex-col items-center justify-center rounded-2xl p-8 text-center" style={{ background: "var(--vault-surface)", border: "1px solid var(--vault-border)" }}>
+                <p className="font-bold text-[#1c1917]">Select a card</p>
+                <p className="mt-1 text-[12px] text-[rgba(28,25,23,0.5)]">Tap any card to view details</p>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
       {showAddCard && (
-        <AddCardModal
-          binderId={binder.id}
-          onClose={() => setShowAddCard(false)}
-          onAdded={loadCards}
-        />
+        <AddCardModal binderId={binder.id} onClose={() => setShowAddCard(false)} onAdded={loadCards} />
       )}
     </div>
   );

@@ -89,7 +89,9 @@ function PocketCell({ card, isActive, onSelect, onToggleCollected, dimmed }: {
   );
 }
 
-const BinderPage = forwardRef<HTMLDivElement, {
+export type { ChecklistCard };
+
+export const BinderPage = forwardRef<HTMLDivElement, {
   pageNum: number;
   totalPages: number;
   cards: ChecklistCard[];
@@ -112,7 +114,7 @@ const BinderPage = forwardRef<HTMLDivElement, {
           isActive={card.id === selectedCard?.id}
           onSelect={() => onSelectCard(card.id === selectedCard?.id ? null : card)}
           onToggleCollected={() => onToggleCollected(card)}
-          dimmed={!!searchQuery && !card.player_name.toLowerCase().includes(searchQuery.toLowerCase()) && !card.card_number.includes(searchQuery)}
+          dimmed={!!searchQuery && !card.player_name.toLowerCase().includes(searchQuery.toLowerCase()) && !card.card_number.toLowerCase().includes(searchQuery.toLowerCase())}
         />
       ))}
       {cards.length === 0 && (
@@ -383,7 +385,6 @@ export function BinderView() {
 
     setChecklist(merged);
     setSelectedCard(null);
-    setCurrentPage(0);
     setChecklistLoading(false);
   }
 
@@ -454,17 +455,18 @@ export function BinderView() {
     if (!binderSearch.trim()) return;
     const timer = setTimeout(() => {
       const q = binderSearch.toLowerCase();
-      const match = checklist.find((c) =>
-        c.player_name.toLowerCase().includes(q) || c.card_number.includes(q)
+      const matches = checklist.filter((c) =>
+        c.player_name.toLowerCase().includes(q) || c.card_number.toLowerCase().includes(q)
       );
-      if (!match) return;
+      if (!matches.length) return;
+      // Sort by page then position so we always land on the earliest card
+      matches.sort((a, b) => a.page_number - b.page_number || a.position - b.position);
+      const match = matches[0];
       const targetPage = match.page_number - 1;
-      if (targetPage !== currentPage) {
-        if (isMobile) {
-          setCurrentPage(targetPage);
-        } else {
-          bookRef.current?.pageFlip()?.flip(targetPage);
-        }
+      if (isMobile) {
+        setCurrentPage(targetPage);
+      } else {
+        bookRef.current?.pageFlip()?.flip(targetPage);
       }
     }, 400);
     return () => clearTimeout(timer);
@@ -558,9 +560,12 @@ export function BinderView() {
             const isHidden = hiddenSetIds.has(s.id);
             return (
               <div key={s.id} className={`relative transition-opacity duration-300 ${isHidden ? "opacity-40" : "opacity-100"}`}>
-                <button
+                <div
+                  role="button"
+                  tabIndex={isHidden ? -1 : 0}
                   onClick={() => !isHidden && setActiveSetId(s.id)}
-                  className={`group relative w-full overflow-hidden rounded-2xl text-left transition-all duration-400 ${isHidden ? "cursor-default" : "hover:-translate-y-2 hover:scale-[1.02]"}`}
+                  onKeyDown={(e) => e.key === "Enter" && !isHidden && setActiveSetId(s.id)}
+                  className={`group relative w-full overflow-hidden rounded-2xl text-left transition-all duration-400 ${isHidden ? "cursor-default" : "cursor-pointer hover:-translate-y-2 hover:scale-[1.02]"}`}
                   style={{ animationDelay: `${idx * 100}ms` }}
                 >
                   <div className="absolute inset-0" style={{ background: "linear-gradient(145deg, #1a0e06 0%, #2d1a0a 30%, #3d2410 60%, #2d1a0a 100%)" }} />
@@ -615,7 +620,7 @@ export function BinderView() {
                       )}
                     </div>
                   </div>
-                </button>
+                </div>
 
               </div>
             );
@@ -873,7 +878,7 @@ export function BinderView() {
                         : "btn-gold"
                     }`}
                   >
-                    : "Mark as collected?"
+                    {toggling ? "..." : selectedCard.collected ? "Remove collected" : "Mark as collected"}
                   </button>
                 )}
 
@@ -963,7 +968,12 @@ export function BinderView() {
         <UploadModal
           card={uploadCard}
           onClose={() => setUploadCard(null)}
-          onUploaded={() => loadChecklist()}
+          onUploaded={async () => {
+            const savedPage = currentPage;
+            await loadChecklist();
+            setCurrentPage(savedPage);
+            if (!isMobile) bookRef.current?.pageFlip()?.flip(savedPage);
+          }}
         />
       )}
     </div>

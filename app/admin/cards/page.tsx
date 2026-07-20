@@ -126,8 +126,10 @@ export default function CardsPage() {
       } else if (bulkAction === "stock" && bulkValue.trim()) {
         const stock = parseInt(bulkValue);
         if (isNaN(stock)) { setBulkLoading(false); return; }
-        await supabase.from("cards").update({ stock }).in("id", ids);
-        setCards((cur) => cur.map((c) => selected.has(c.id) ? { ...c, stock } : c));
+        const update: any = { stock };
+        if (stock <= 0) update.status = "draft";
+        await supabase.from("cards").update(update).in("id", ids);
+        setCards((cur) => cur.map((c) => selected.has(c.id) ? { ...c, stock, ...(stock <= 0 ? { status: "draft" } : {}) } : c));
       }
 
       setSelected(new Set());
