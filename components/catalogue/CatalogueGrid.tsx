@@ -178,7 +178,7 @@ export function CatalogueGrid() {
           <div className="flex gap-2">
             <button
               type="button"
-              onClick={() => setShowFilters((v) => !v)}
+              onClick={() => setShowFilters((v: boolean) => !v)}
               className={`flex-1 rounded-2xl border px-4 py-3.5 text-sm font-semibold transition sm:flex-none sm:px-5 ${showFilters ? "border-[rgba(200,155,60,0.3)] bg-[rgba(200,155,60,0.08)] text-[#92400e]" : "border-[rgba(0,0,0,0.1)] bg-white text-zinc-600 hover:text-zinc-900"}`}
             >
               Filters {showFilters ? "↑" : "↓"}
