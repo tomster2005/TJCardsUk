@@ -144,7 +144,7 @@ export function CatalogueGrid() {
             {[
               { label: "⚽ Football", filter: () => { setSetFilter("all"); setTeamFilter("all"); }, active: !query && setFilter === "all" },
               { label: "✨ Disney", filter: () => { setSetFilter("all"); }, active: false },
-              { label: "📦 In Stock", filter: () => setInStockOnly((v) => !v), active: inStockOnly },
+              { label: "📦 In Stock", filter: () => setInStockOnly((v: boolean) => !v), active: inStockOnly },
             ].map((cat) => (
               <button
                 key={cat.label}
