@@ -240,6 +240,7 @@ function UserBinderView({ binder, onBack, isOwner }: { binder: UserBinder; onBac
     community_credit: null,
     personal_image: null,
     collected: !!c.image_url,
+    prefer_personal: false,
   }));
 
   const totalPages = Math.max(1, Math.ceil(checklistCards.length / 9));
