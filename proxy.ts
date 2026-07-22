@@ -21,7 +21,7 @@ export async function proxy(request: NextRequest) {
     const parsed = JSON.parse(decodeURIComponent(authCookie.value));
     const session = Array.isArray(parsed) ? parsed[0] : parsed;
     accessToken = session?.access_token ?? null;
-  } catch {
+  } catch (e) {
     console.log("[middleware] parse error:", e);
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("next", request.nextUrl.pathname);
