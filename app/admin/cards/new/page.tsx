@@ -53,9 +53,7 @@ export default function NewCardPage() {
       parallel: safeParallel,
       is_base_variant: !safeParallel,
       image_url: imageUrl.trim() || null,
-      image_front: imageUrl.trim() || null,
       back_image_url: backImageUrl.trim() || null,
-      image_back: backImageUrl.trim() || null,
     };
 
     // Auto-resolve variant_group_id

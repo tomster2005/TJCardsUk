@@ -24,17 +24,17 @@ interface BinderSet {
 
 const STORAGE_KEY = "bulk-upload-progress";
 
-function loadProgress(): { batch: string | null; index: number; binderId: string | null } {
-  if (typeof window === "undefined") return { batch: null, index: 0, binderId: null };
+function loadProgress(): { batch: string | null; index: number; binderId: string | null; owner: string | null; category: string | null } {
+  if (typeof window === "undefined") return { batch: null, index: 0, binderId: null, owner: null, category: null };
   try {
     const raw = sessionStorage.getItem(STORAGE_KEY);
     if (raw) return JSON.parse(raw);
   } catch {}
-  return { batch: null, index: 0, binderId: null };
+  return { batch: null, index: 0, binderId: null, owner: null, category: null };
 }
 
-function saveProgress(batch: string | null, index: number, binderId: string | null) {
-  try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ batch, index, binderId })); } catch {}
+function saveProgress(batch: string | null, index: number, binderId: string | null, owner: string | null, category: string | null) {
+  try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ batch, index, binderId, owner, category })); } catch {}
 }
 
 function clearProgress() {
@@ -149,6 +149,9 @@ export default function ProcessBatchPage() {
   const [season, setSeason] = useState("");
   const [parallel, setParallel] = useState("");
   const [printRun, setPrintRun] = useState("");
+  const [binderImageMode, setBinderImageMode] = useState(false);
+  const [owner, setOwner] = useState<string | null>(null);
+  const [category, setCategory] = useState<string | null>(null);
 
   // Restore progress
   useEffect(() => {
@@ -158,11 +161,13 @@ export default function ProcessBatchPage() {
       setCurrentIndex(saved.index);
     }
     if (saved.binderId) setSelectedBinder(saved.binderId);
+    if (saved.owner) setOwner(saved.owner);
+    if (saved.category) setCategory(saved.category);
   }, []);
 
   useEffect(() => {
-    if (selectedBatch) saveProgress(selectedBatch, currentIndex, selectedBinder);
-  }, [selectedBatch, currentIndex, selectedBinder]);
+    if (selectedBatch) saveProgress(selectedBatch, currentIndex, selectedBinder, owner, category);
+  }, [selectedBatch, currentIndex, selectedBinder, owner, category]);
 
   // Load binder sets
   useEffect(() => {
@@ -335,9 +340,57 @@ export default function ProcessBatchPage() {
     setSaving(true);
     setError(null);
 
+    const safeCardNum = cardNumber.trim();
     const safeTitle = title.trim();
     const safeSet = setName.trim();
-    const safeCardNum = cardNumber.trim();
+
+    // ── Binder image mode: write directly to community_images as approved ──
+    if (binderImageMode) {
+      if (!selectedBinder || !safeCardNum) {
+        setError("Select a binder and make sure card number is filled in.");
+        setSaving(false);
+        return;
+      }
+      // Find the checklist row
+      const { data: clRow } = await supabase
+        .from("binder_checklist")
+        .select("id")
+        .eq("set_id", selectedBinder)
+        .eq("card_number", safeCardNum)
+        .limit(1)
+        .single();
+
+      if (!clRow) {
+        setError(`No checklist entry found for card #${safeCardNum} in this binder.`);
+        setSaving(false);
+        return;
+      }
+
+      // Upsert into community_images as approved (replaces any existing)
+      const { error: imgErr } = await supabase
+        .from("community_images")
+        .upsert(
+          { checklist_id: clRow.id, image_url: currentPair.front, username: "Admin", status: "approved", uploaded_by: null },
+          { onConflict: "checklist_id" }
+        );
+
+      if (imgErr) { setError(imgErr.message); setSaving(false); return; }
+
+      // Also update the binder_checklist image_url directly so it shows without community lookup
+      await supabase.from("binder_checklist").update({ image_url: currentPair.front }).eq("id", clRow.id);
+
+      setSaving(false);
+      setTitle(""); setCardNumber(""); setOcrRawText(""); setMatchConfidence("");
+      if (currentIndex + 1 < pairs.length) {
+        setCurrentIndex(currentIndex + 1);
+      } else {
+        clearProgress();
+        router.push("/admin/bulk-upload?done=1");
+      }
+      return;
+    }
+
+    // ── Normal mode: create/update cards row ──
 
     const { data: existing } = await supabase
       .from("cards")
@@ -345,10 +398,17 @@ export default function ProcessBatchPage() {
       .eq("title", safeTitle)
       .eq("set_name", safeSet)
       .eq("card_number", safeCardNum)
+      .eq("parallel", parallel.trim() || "")
       .limit(1)
       .single();
 
     if (existing) {
+      // Add a new copy row for this owner (FIFO tracking)
+      const { error: copyErr } = await supabase
+        .from("card_copies")
+        .insert({ card_id: existing.id, owner: owner || "Joint", sold: false });
+      if (copyErr) { setError(copyErr.message); setSaving(false); return; }
+      // Increment stock on the card row
       const { error: updateErr } = await supabase
         .from("cards")
         .update({ stock: existing.stock + (Number(stock) || 1) })
@@ -374,7 +434,7 @@ export default function ProcessBatchPage() {
 
       const isBase = !parallel.trim();
       const slug = `${safeTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")}-${safeCardNum.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}`;
-      const { error: insertErr } = await supabase.from("cards").insert([{
+      const { data: newCard, error: insertErr } = await supabase.from("cards").insert([{
         title: safeTitle,
         player: safeTitle,
         set_name: safeSet,
@@ -383,8 +443,8 @@ export default function ProcessBatchPage() {
         stock: Number(stock) || 1,
         status,
         slug,
-        image_front: currentPair.front,
-        image_back: currentPair.back,
+        owner: owner || null,
+        category: category || null,
         image_url: currentPair.front,
         back_image_url: currentPair.back,
         team: team.trim() || null,
@@ -394,8 +454,12 @@ export default function ProcessBatchPage() {
         print_run: printRun.trim() || null,
         variant_group_id: groupId,
         is_base_variant: isBase,
-      }]);
+      }]).select("id").single();
       if (insertErr) { setError(insertErr.message); setSaving(false); return; }
+      // Insert copy rows for each unit of stock
+      const qty = Number(stock) || 1;
+      const copyRows = Array.from({ length: qty }, () => ({ card_id: (newCard as any).id, owner: owner || "Joint", sold: false }));
+      await supabase.from("card_copies").insert(copyRows);
     }
 
     setSaving(false);
@@ -457,6 +521,44 @@ export default function ProcessBatchPage() {
           {selectedBinder && checklist.length > 0 && (
             <p className="mt-2 text-xs text-emerald-600 font-medium">{checklist.length} entries loaded from checklist</p>
           )}
+          <label className="mt-3 block">
+            <span className="text-sm font-medium text-zinc-700">Owner</span>
+            <select
+              value={owner || ""}
+              onChange={e => setOwner(e.target.value || null)}
+              className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none"
+            >
+              <option value="">Not set</option>
+              <option value="Tom">Tom</option>
+              <option value="Jamie">Jamie</option>
+              <option value="Joint">Joint</option>
+            </select>
+          </label>
+          <label className="mt-3 block">
+            <span className="text-sm font-medium text-zinc-700">Category</span>
+            <select
+              value={category || ""}
+              onChange={e => setCategory(e.target.value || null)}
+              className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none"
+            >
+              <option value="">Not set</option>
+              <option value="Football">⚽ Football</option>
+              <option value="Disney">✨ Disney</option>
+            </select>
+          </label>
+          {selectedBinder && (
+            <label className="mt-3 flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={binderImageMode}
+                onChange={e => setBinderImageMode(e.target.checked)}
+                className="h-4 w-4 rounded accent-amber-500"
+              />
+              <span className="text-sm font-medium text-zinc-700">
+                Binder image mode — save images to binder only, no card rows created
+              </span>
+            </label>
+          )}
         </div>
 
         {batches.length === 0 ? (
@@ -483,9 +585,10 @@ export default function ProcessBatchPage() {
       <div className="rounded-3xl border border-slate-300/60 bg-white/92 p-6 shadow-sm flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-zinc-900">Card {currentIndex + 1} of {pairs.length}</h1>
-          <p className="text-sm text-zinc-500">Batch: {selectedBatch} {selectedBinder && `| Checklist: ${binderSets.find(b => b.id === selectedBinder)?.title}`}</p>
+          <p className="text-sm text-zinc-500">Batch: {selectedBatch} {selectedBinder && `| Checklist: ${binderSets.find(b => b.id === selectedBinder)?.title}`} {category && `| ${category}`}</p>
         </div>
         <div className="flex gap-2">
+          <button onClick={() => { if (currentIndex > 0) { setCurrentIndex(currentIndex - 1); setTitle(""); setCardNumber(""); setOcrRawText(""); setMatchConfidence(""); } }} disabled={currentIndex === 0} className="rounded-full border border-slate-300 px-4 py-2 text-sm text-zinc-700 hover:bg-slate-50 disabled:opacity-40">← Back</button>
           <button onClick={handleSkip} className="rounded-full border border-slate-300 px-4 py-2 text-sm text-zinc-700 hover:bg-slate-50">Skip</button>
           <button onClick={() => { setSelectedBatch(null); setPairs([]); clearProgress(); }} className="rounded-full border border-slate-300 px-4 py-2 text-sm text-zinc-700 hover:bg-slate-50">Back</button>
         </div>
@@ -547,44 +650,84 @@ export default function ProcessBatchPage() {
                 <input value={setName} onChange={e => setSetName(e.target.value)} className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
               </label>
             </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="block">
-                <span className="text-sm text-zinc-700">Team</span>
-                <input value={team} onChange={e => setTeam(e.target.value)} className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
-              </label>
-              <label className="block">
-                <span className="text-sm text-zinc-700">Parallel</span>
-                <input value={parallel} onChange={e => setParallel(e.target.value)} className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
-              </label>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="block">
-                <span className="text-sm text-zinc-700">Brand</span>
-                <input value={brand} onChange={e => setBrand(e.target.value)} className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
-              </label>
-              <label className="block">
-                <span className="text-sm text-zinc-700">Season</span>
-                <input value={season} onChange={e => setSeason(e.target.value)} className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
-              </label>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-3">
-              <label className="block">
-                <span className="text-sm text-zinc-700">Price</span>
-                <input value={price} onChange={e => setPrice(e.target.value)} type="number" step="0.01" className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
-              </label>
-              <label className="block">
-                <span className="text-sm text-zinc-700">Stock</span>
-                <input value={stock} onChange={e => setStock(e.target.value)} type="number" className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
-              </label>
-              <label className="block">
-                <span className="text-sm text-zinc-700">Status</span>
-                <select value={status} onChange={e => setStatus(e.target.value)} className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none">
-                  <option value="draft">Draft</option>
-                  <option value="published">Published</option>
-                </select>
-              </label>
-            </div>
-            <button type="button" onClick={handleSave} disabled={saving || !title.trim()} className="mt-2 w-full rounded-full bg-amber-500 px-5 py-3 text-sm font-semibold text-white shadow hover:bg-amber-600 disabled:opacity-50">
+            {!binderImageMode && (
+              <>
+                {category === "Football" && (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <label className="block">
+                      <span className="text-sm text-zinc-700">Team</span>
+                      <input value={team} onChange={e => setTeam(e.target.value)} className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
+                    </label>
+                    <label className="block">
+                      <span className="text-sm text-zinc-700">Brand</span>
+                      <input value={brand} onChange={e => setBrand(e.target.value)} className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
+                    </label>
+                    <label className="block">
+                      <span className="text-sm text-zinc-700">Season</span>
+                      <input value={season} onChange={e => setSeason(e.target.value)} className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
+                    </label>
+                    <label className="block">
+                      <span className="text-sm text-zinc-700">Parallel</span>
+                      <input value={parallel} onChange={e => setParallel(e.target.value)} className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
+                    </label>
+                    <label className="block">
+                      <span className="text-sm text-zinc-700">Print Run (e.g. 150)</span>
+                      <input value={printRun} onChange={e => setPrintRun(e.target.value)} className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
+                    </label>
+                  </div>
+                )}
+                {category === "Disney" && (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <label className="block">
+                      <span className="text-sm text-zinc-700">Parallel</span>
+                      <input value={parallel} onChange={e => setParallel(e.target.value)} className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
+                    </label>
+                    <label className="block">
+                      <span className="text-sm text-zinc-700">Print Run (e.g. 150)</span>
+                      <input value={printRun} onChange={e => setPrintRun(e.target.value)} className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
+                    </label>
+                  </div>
+                )}
+                {!category && (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <label className="block">
+                      <span className="text-sm text-zinc-700">Team</span>
+                      <input value={team} onChange={e => setTeam(e.target.value)} className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
+                    </label>
+                    <label className="block">
+                      <span className="text-sm text-zinc-700">Parallel</span>
+                      <input value={parallel} onChange={e => setParallel(e.target.value)} className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
+                    </label>
+                    <label className="block">
+                      <span className="text-sm text-zinc-700">Brand</span>
+                      <input value={brand} onChange={e => setBrand(e.target.value)} className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
+                    </label>
+                    <label className="block">
+                      <span className="text-sm text-zinc-700">Season</span>
+                      <input value={season} onChange={e => setSeason(e.target.value)} className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
+                    </label>
+                  </div>
+                )}
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <label className="block">
+                    <span className="text-sm text-zinc-700">Price</span>
+                    <input value={price} onChange={e => setPrice(e.target.value)} type="number" step="0.01" className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
+                  </label>
+                  <label className="block">
+                    <span className="text-sm text-zinc-700">Stock</span>
+                    <input value={stock} onChange={e => setStock(e.target.value)} type="number" className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
+                  </label>
+                  <label className="block">
+                    <span className="text-sm text-zinc-700">Status</span>
+                    <select value={status} onChange={e => setStatus(e.target.value)} className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none">
+                      <option value="draft">Draft</option>
+                      <option value="published">Published</option>
+                    </select>
+                  </label>
+                </div>
+              </>
+            )}
+            <button type="button" onClick={handleSave} disabled={saving || (binderImageMode ? !cardNumber.trim() : !title.trim())} className="mt-2 w-full rounded-full bg-amber-500 px-5 py-3 text-sm font-semibold text-white shadow hover:bg-amber-600 disabled:opacity-50">
               {saving ? "Saving..." : "Save & Next"}
             </button>
           </form>

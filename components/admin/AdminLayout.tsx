@@ -31,8 +31,6 @@ const adminNavGroups = [
     key: "database",
     items: [
       { href: "/admin/sets", label: "Sets" },
-      { href: "/admin/teams", label: "Teams" },
-      { href: "/admin/players", label: "Players" },
     ],
   },
   {
@@ -50,11 +48,15 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { signOut, user, loading, isAdmin, profileLoading } = useAuth();
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
-    overview: true,
-    catalogue: true,
-    database: true,
-    system: true,
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
+    // Only open the group that contains the current active page
+    const initial: Record<string, boolean> = {};
+    for (const group of adminNavGroups) {
+      initial[group.key] = group.items.some(
+        (item) => pathname === item.href || pathname.startsWith(`${item.href}/`)
+      );
+    }
+    return initial;
   });
 
   const authReady = !loading && !profileLoading;

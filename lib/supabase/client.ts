@@ -14,7 +14,25 @@ export function getBrowserSupabase() {
   if (!supabaseUrl || !supabaseKey) return null;
 
   supabase = createClient(supabaseUrl, supabaseKey, {
-    auth: { persistSession: true, detectSessionInUrl: true },
+    auth: {
+      persistSession: true,
+      detectSessionInUrl: true,
+      storage: {
+        getItem: (key) => {
+          if (typeof document === "undefined") return null;
+          const match = document.cookie.match(new RegExp(`(^| )${key}=([^;]+)`));
+          return match ? decodeURIComponent(match[2]) : null;
+        },
+        setItem: (key, value) => {
+          if (typeof document === "undefined") return;
+          document.cookie = `${key}=${encodeURIComponent(value)};path=/;max-age=31536000;SameSite=Lax`;
+        },
+        removeItem: (key) => {
+          if (typeof document === "undefined") return;
+          document.cookie = `${key}=;path=/;max-age=0`;
+        },
+      },
+    },
   });
 
   return supabase;

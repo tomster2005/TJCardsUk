@@ -20,14 +20,23 @@ type EditableCard = {
   back_image_url: string;
 };
 
+type CardCopy = {
+  id: string;
+  owner: string;
+  sold: boolean;
+  created_at: string;
+};
+
 export default function EditCardPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const { user, loading } = useAuth();
   const [card, setCard] = useState<EditableCard | null>(null);
+  const [copies, setCopies] = useState<CardCopy[]>([]);
   const [isLoadingCard, setIsLoadingCard] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [copySaving, setCopySaving] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -43,7 +52,10 @@ export default function EditCardPage() {
     let mounted = true;
 
     (async () => {
-      const { data, error } = await supabase.from("cards").select("*").eq("id", id).limit(1).single();
+      const [{ data, error }, { data: copiesData }] = await Promise.all([
+        supabase.from("cards").select("*").eq("id", id).limit(1).single(),
+        supabase.from("card_copies").select("id, owner, sold, created_at").eq("card_id", id).order("created_at", { ascending: true }),
+      ]);
       if (!mounted) return;
 
       if (error || !data) {
@@ -52,6 +64,7 @@ export default function EditCardPage() {
         return;
       }
 
+      setCopies((copiesData ?? []) as CardCopy[]);
       setCard({
         id: data.id,
         title: data.title ?? "",
@@ -73,6 +86,40 @@ export default function EditCardPage() {
       mounted = false;
     };
   }, [params, loading, user]);
+
+  async function updateCopyOwner(copyId: string, newOwner: string) {
+    const supabase = getBrowserSupabase();
+    if (!supabase) return;
+    setCopySaving(copyId);
+    await supabase.from("card_copies").update({ owner: newOwner }).eq("id", copyId);
+    setCopies((prev) => prev.map((c) => c.id === copyId ? { ...c, owner: newOwner } : c));
+    setCopySaving(null);
+  }
+
+  async function deleteCopy(copyId: string) {
+    const supabase = getBrowserSupabase();
+    if (!supabase || !card) return;
+    setCopySaving(copyId);
+    await supabase.from("card_copies").delete().eq("id", copyId);
+    const newCopies = copies.filter((c) => c.id !== copyId);
+    setCopies(newCopies);
+    const unsoldCount = newCopies.filter((c) => !c.sold).length;
+    await supabase.from("cards").update({ stock: unsoldCount, status: unsoldCount === 0 ? "draft" : card.status }).eq("id", card.id);
+    setCard((cur) => cur ? { ...cur, stock: unsoldCount } : cur);
+    setCopySaving(null);
+  }
+
+  async function addCopy(owner: string) {
+    const supabase = getBrowserSupabase();
+    if (!supabase || !card) return;
+    const { data: newCopy } = await supabase.from("card_copies").insert({ card_id: card.id, owner, sold: false }).select("id, owner, sold, created_at").single();
+    if (!newCopy) return;
+    const newCopies = [...copies, newCopy as CardCopy];
+    setCopies(newCopies);
+    const unsoldCount = newCopies.filter((c) => !c.sold).length;
+    await supabase.from("cards").update({ stock: unsoldCount, status: "published" }).eq("id", card.id);
+    setCard((cur) => cur ? { ...cur, stock: unsoldCount } : cur);
+  }
 
   if (loading || !user) {
     return <div className="rounded-3xl border border-slate-300/60 bg-white/90 p-8 text-zinc-600">Checking auth…</div>;
@@ -113,9 +160,7 @@ export default function EditCardPage() {
       parallel: activeCard.parallel.trim() || null,
       team: activeCard.team.trim() || null,
       image_url: activeCard.image_url.trim() || null,
-      image_front: activeCard.image_url.trim() || null,
       back_image_url: activeCard.back_image_url.trim() || null,
-      image_back: activeCard.back_image_url.trim() || null,
       is_base_variant: !activeCard.parallel.trim(),
     };
 
@@ -224,6 +269,52 @@ export default function EditCardPage() {
           </label>
 
           <p className="text-xs text-zinc-400">Cards with no parallel show in the catalogue. Cards with a parallel are variants.</p>
+
+          {/* Copies / Ownership */}
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-sm font-semibold text-zinc-700 mb-3">Physical Copies ({copies.filter(c => !c.sold).length} unsold · {copies.filter(c => c.sold).length} sold)</p>
+            <div className="space-y-2">
+              {copies.map((copy, i) => (
+                <div key={copy.id} className={`flex items-center gap-3 rounded-xl border px-3 py-2 text-sm ${ copy.sold ? "border-slate-200 bg-white opacity-50" : "border-slate-200 bg-white" }`}>
+                  <span className="text-xs text-zinc-400 w-4">{i + 1}</span>
+                  <select
+                    value={copy.owner}
+                    disabled={copy.sold || copySaving === copy.id}
+                    onChange={(e) => updateCopyOwner(copy.id, e.target.value)}
+                    className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-zinc-700 outline-none disabled:opacity-50"
+                  >
+                    <option value="Tom">Tom</option>
+                    <option value="Jamie">Jamie</option>
+                    <option value="Joint">Joint</option>
+                  </select>
+                  {copy.sold ? (
+                    <span className="text-xs text-zinc-400">Sold</span>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={copySaving === copy.id}
+                      onClick={() => deleteCopy(copy.id)}
+                      className="ml-auto text-xs text-red-500 hover:text-red-700 disabled:opacity-40"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 flex gap-2">
+              {["Tom", "Jamie", "Joint"].map((o) => (
+                <button
+                  key={o}
+                  type="button"
+                  onClick={() => addCopy(o)}
+                  className="rounded-full border border-slate-300 px-3 py-1 text-xs font-medium text-zinc-600 hover:bg-white"
+                >
+                  + {o}
+                </button>
+              ))}
+            </div>
+          </div>
 
           {submitError ? (
             <div className="rounded-2xl border border-red-400/30 bg-red-500/10 p-3 text-sm text-red-200">

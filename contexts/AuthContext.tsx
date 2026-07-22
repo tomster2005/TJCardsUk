@@ -41,6 +41,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
+    let subscription: { unsubscribe: () => void } | null = null;
 
     const init = async () => {
       const supabase = getBrowserSupabase();
@@ -50,16 +51,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      const { data: { session } } = await supabase.auth.getSession();
 
       if (!mounted) return;
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);
 
-      // Fetch role if user exists
       if (session?.user?.id) {
         setProfileLoading(true);
         const userRole = await fetchRole(session.user.id);
@@ -89,17 +87,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       });
 
-      return () => {
-        mounted = false;
-        try {
-          listener.subscription.unsubscribe();
-        } catch (e) {
-          // ignore
-        }
-      };
+      subscription = listener.subscription;
     };
 
     init();
+
+    return () => {
+      mounted = false;
+      subscription?.unsubscribe();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

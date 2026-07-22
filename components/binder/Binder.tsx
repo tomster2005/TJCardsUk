@@ -30,6 +30,7 @@ type ChecklistCard = {
   community_image: string | null;
   community_credit: string | null;
   personal_image: string | null;
+  prefer_personal: boolean;
   collected: boolean;
 };
 
@@ -40,7 +41,12 @@ function PocketCell({ card, isActive, onSelect, onToggleCollected, dimmed }: {
   onToggleCollected: () => void;
   dimmed?: boolean;
 }) {
-  const displayImage = card.personal_image || card.image_url || card.community_image;
+  // Priority: personal (if prefer_personal) > official > community > personal (fallback)
+  const displayImage =
+    (card.personal_image && card.prefer_personal) ? card.personal_image :
+    card.image_url ? card.image_url :
+    card.community_image ? card.community_image :
+    card.personal_image ?? null;
   const hasImage = !!displayImage;
 
   return (
@@ -135,6 +141,7 @@ function UploadModal({ card, onClose, onUploaded }: {
   const { user } = useAuth();
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [shareWithCommunity, setShareWithCommunity] = useState(false);
   const [message, setMessage] = useState("");
 
   async function handleUpload() {
@@ -170,21 +177,20 @@ function UploadModal({ card, onClose, onUploaded }: {
 
       const publicUrl = urlData.publicUrl;
 
-      // Always save to personal images (upsert in case they're replacing)
+      // Save to personal images
       const { error: personalError } = await supabase
         .from("personal_card_images")
-        .upsert({ user_id: user.id, checklist_id: card.id, image_url: publicUrl }, { onConflict: "user_id,checklist_id" });
+        .upsert({ user_id: user.id, checklist_id: card.id, image_url: publicUrl, prefer_personal: true }, { onConflict: "user_id,checklist_id" });
 
       if (personalError) throw personalError;
 
-      // Auto-mark as collected on upload
+      // Auto-mark as collected
       await supabase
         .from("user_binder_progress")
         .upsert({ user_id: user.id, checklist_id: card.id }, { onConflict: "user_id,checklist_id" });
 
-
-      // Only submit to community queue if there's no official image
-      if (!card.image_url) {
+      // Only submit to community queue if user explicitly opted in
+      if (shareWithCommunity) {
         await supabase.from("community_images").insert({
           checklist_id: card.id,
           image_url: publicUrl,
@@ -192,9 +198,11 @@ function UploadModal({ card, onClose, onUploaded }: {
           username,
           status: "pending",
         });
+        setMessage("Photo saved! Submitted for community review.");
+      } else {
+        setMessage("Photo saved to your binder!");
       }
 
-      setMessage(card.image_url ? "Photo saved to your binder!" : "Uploaded! Also submitted for community review.");
       setTimeout(() => { onUploaded(); onClose(); }, 1500);
     } catch (err: any) {
       setMessage(`Error: ${err.message}`);
@@ -211,13 +219,20 @@ function UploadModal({ card, onClose, onUploaded }: {
           #{card.card_number} - {card.player_name}
         </p>
         <p className="mt-2 text-xs text-[rgba(28,25,23,0.4)]">
-          {card.image_url
-            ? "Your photo will show in your binder only. It won't affect other users."
-            : "Your photo will show in your binder immediately. It will also be submitted for community review — if approved, it shows for everyone."
-          }
+          Your photo saves to your binder only. If an official photo exists, your binder will show that by default — but your photo is always kept.
         </p>
 
         <input ref={fileRef} type="file" accept="image/*" className="mt-4 w-full text-sm" />
+
+        <label className="mt-3 flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={shareWithCommunity}
+            onChange={(e) => setShareWithCommunity(e.target.checked)}
+            className="h-4 w-4 rounded accent-[#c89b3c]"
+          />
+          <span className="text-xs text-[rgba(28,25,23,0.6)]">Share with community (submitted for review)</span>
+        </label>
 
         {message && (
           <p className={`mt-3 text-sm ${message.startsWith("Error") ? "text-red-600" : "text-green-700"}`}>
@@ -227,11 +242,114 @@ function UploadModal({ card, onClose, onUploaded }: {
 
         <div className="mt-4 flex gap-2">
           <button onClick={handleUpload} disabled={uploading} className="btn-gold rounded-xl px-4 py-2 text-sm font-bold disabled:opacity-50">
-            {uploading ? "Uploading..." : "Submit Photo"}
+            {uploading ? "Uploading..." : "Save Photo"}
           </button>
           <button onClick={onClose} className="rounded-xl border border-[var(--vault-border)] px-4 py-2 text-sm font-medium text-[rgba(28,25,23,0.6)]">
             Cancel
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MissingCardsModal({ missing, onClose, onMarkCollected }: {
+  missing: ChecklistCard[];
+  onClose: () => void;
+  onMarkCollected: (ids: string[]) => Promise<void>;
+}) {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [marking, setMarking] = useState(false);
+  const allSelected = missing.length > 0 && selected.size === missing.length;
+
+  function toggleOne(id: string) {
+    setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  }
+
+  async function handleMark() {
+    if (selected.size === 0) return;
+    setMarking(true);
+    await onMarkCollected(Array.from(selected));
+    setSelected(new Set());
+    setMarking(false);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div className="flex max-h-[80vh] w-full max-w-md flex-col rounded-2xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-[rgba(0,0,0,0.08)] px-5 py-4">
+          <div>
+            <h3 className="font-black text-[#1c1917]">Missing Cards</h3>
+            <p className="text-[12px] text-[rgba(28,25,23,0.5)]">{missing.length} cards still needed</p>
+          </div>
+          <button onClick={onClose} className="rounded-full p-2 text-zinc-400 hover:bg-zinc-100">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+          </button>
+        </div>
+
+        {selected.size > 0 && (
+          <div className="flex items-center justify-between border-b border-[rgba(0,0,0,0.06)] bg-[rgba(200,155,60,0.06)] px-5 py-2.5">
+            <span className="text-[12px] font-semibold text-[#1c1917]">{selected.size} selected</span>
+            <button
+              onClick={handleMark}
+              disabled={marking}
+              className="btn-gold rounded-full px-4 py-1.5 text-[12px] font-bold disabled:opacity-50"
+            >
+              {marking ? "Marking..." : `Mark ${selected.size} as collected`}
+            </button>
+          </div>
+        )}
+
+        <div className="overflow-y-auto">
+          {missing.length === 0 ? (
+            <div className="py-12 text-center">
+              <p className="text-2xl">🎉</p>
+              <p className="mt-2 font-bold text-[#1c1917]">Complete set!</p>
+              <p className="text-[12px] text-[rgba(28,25,23,0.5)]">You have every card in this binder.</p>
+            </div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[rgba(0,0,0,0.06)] text-left">
+                  <th className="px-4 py-2.5">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={() => setSelected(allSelected ? new Set() : new Set(missing.map(c => c.id)))}
+                      className="h-4 w-4 rounded accent-[#c89b3c]"
+                    />
+                  </th>
+                  <th className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.2em] text-[rgba(28,25,23,0.4)]">#</th>
+                  <th className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.2em] text-[rgba(28,25,23,0.4)]">Player</th>
+                  <th className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.2em] text-[rgba(28,25,23,0.4)]">Parallel</th>
+                </tr>
+              </thead>
+              <tbody>
+                {missing.map((card) => (
+                  <tr
+                    key={card.id}
+                    onClick={() => toggleOne(card.id)}
+                    className={`cursor-pointer border-b border-[rgba(0,0,0,0.04)] transition ${
+                      selected.has(card.id) ? "bg-[rgba(200,155,60,0.08)]" : "hover:bg-[rgba(0,0,0,0.02)]"
+                    }`}
+                  >
+                    <td className="px-4 py-2.5">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(card.id)}
+                        onChange={() => toggleOne(card.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="h-4 w-4 rounded accent-[#c89b3c]"
+                      />
+                    </td>
+                    <td className="px-3 py-2.5 font-mono text-[12px] text-[rgba(28,25,23,0.4)]">#{card.card_number}</td>
+                    <td className="px-3 py-2.5 font-semibold text-[#1c1917]">{card.player_name}</td>
+                    <td className="px-3 py-2.5 text-[12px] text-[rgba(28,25,23,0.5)]">{card.parallel || "Base"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
     </div>
@@ -328,7 +446,7 @@ export function BinderView() {
       user
         ? supabase
             .from("personal_card_images")
-            .select("checklist_id, image_url")
+            .select("checklist_id, image_url, prefer_personal")
             .eq("user_id", user.id)
             .in("checklist_id", checklistIds)
         : Promise.resolve({ data: null }),
@@ -344,11 +462,16 @@ export function BinderView() {
     const cardLookup = new Map<string, { image_url: string | null; stock: number }>();
     if (cardsData) {
       for (const c of cardsData) {
-        if (!cardLookup.has(c.card_number)) {
+        const existing = cardLookup.get(c.card_number);
+        // Prefer base variant image — only overwrite if this is a base variant or no entry yet
+        if (!existing || c.is_base_variant) {
           cardLookup.set(c.card_number, {
             image_url: c.image_url || c.image_front || null,
             stock: c.stock || 0,
           });
+        } else {
+          // Keep existing but accumulate stock
+          cardLookup.set(c.card_number, { ...existing, stock: existing.stock + (c.stock || 0) });
         }
       }
     }
@@ -362,10 +485,10 @@ export function BinderView() {
       }
     }
 
-    const personalLookup = new Map<string, string>();
+    const personalLookup = new Map<string, { image_url: string; prefer_personal: boolean }>();
     if (personalData) {
       for (const p of personalData) {
-        personalLookup.set(p.checklist_id, p.image_url);
+        personalLookup.set(p.checklist_id, { image_url: p.image_url, prefer_personal: p.prefer_personal ?? false });
       }
     }
 
@@ -378,7 +501,8 @@ export function BinderView() {
         stock: match?.stock || 0,
         community_image: community?.image_url || null,
         community_credit: community?.username || null,
-        personal_image: personalLookup.get(item.id) || null,
+        personal_image: personalLookup.get(item.id)?.image_url || null,
+        prefer_personal: personalLookup.get(item.id)?.prefer_personal ?? false,
         collected: collectedSet.has(item.id),
       };
     });
@@ -399,6 +523,21 @@ export function BinderView() {
       await supabase.from("user_binder_hidden").insert({ user_id: user.id, set_id: setId });
       setHiddenSetIds((prev) => new Set(prev).add(setId));
     }
+  }
+
+  async function togglePreferPersonal(card: ChecklistCard) {
+    if (!user) return;
+    const supabase = getBrowserSupabase();
+    if (!supabase) return;
+    const newPref = !card.prefer_personal;
+    await supabase
+      .from("personal_card_images")
+      .update({ prefer_personal: newPref })
+      .eq("user_id", user.id)
+      .eq("checklist_id", card.id);
+    const updated = checklist.map((c) => c.id === card.id ? { ...c, prefer_personal: newPref } : c);
+    setChecklist(updated);
+    setSelectedCard({ ...card, prefer_personal: newPref });
   }
 
   async function toggleCollected(card: ChecklistCard) {
@@ -892,6 +1031,16 @@ export function BinderView() {
                     {selectedCard.personal_image ? "Replace photo" : "Upload a photo"}
                   </button>
                 )}
+                {/* Use my photo / Use official toggle — only shown when both exist */}
+                {user && selectedCard.personal_image && selectedCard.image_url && (
+                  <button
+                    onClick={() => togglePreferPersonal(selectedCard)}
+                    className="mt-2 w-full rounded-xl py-2 text-[12px] font-semibold transition hover:bg-[rgba(0,0,0,0.04)]"
+                    style={{ border: "1px solid var(--vault-border)" }}
+                  >
+                    {selectedCard.prefer_personal ? "Use official photo" : "Use my photo"}
+                  </button>
+                )}
               </div>
 
               {/* Stats */}
@@ -920,50 +1069,22 @@ export function BinderView() {
 
       {/* Missing cards modal */}
       {showMissing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShowMissing(false)}>
-          <div className="flex max-h-[80vh] w-full max-w-md flex-col rounded-2xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between border-b border-[rgba(0,0,0,0.08)] px-5 py-4">
-              <div>
-                <h3 className="font-black text-[#1c1917]">Missing Cards</h3>
-                <p className="text-[12px] text-[rgba(28,25,23,0.5)]">{checklist.filter(c => !c.collected).length} cards still needed</p>
-              </div>
-              <button onClick={() => setShowMissing(false)} className="rounded-full p-2 text-zinc-400 hover:bg-zinc-100">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
-              </button>
-            </div>
-            <div className="overflow-y-auto">
-              {checklist.filter(c => !c.collected).length === 0 ? (
-                <div className="py-12 text-center">
-                  <p className="text-2xl">🎉</p>
-                  <p className="mt-2 font-bold text-[#1c1917]">Complete set!</p>
-                  <p className="text-[12px] text-[rgba(28,25,23,0.5)]">You have every card in this binder.</p>
-                </div>
-              ) : (
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-[rgba(0,0,0,0.06)] text-left">
-                      <th className="px-5 py-2.5 text-[10px] font-bold uppercase tracking-[0.2em] text-[rgba(28,25,23,0.4)]">#</th>
-                      <th className="px-5 py-2.5 text-[10px] font-bold uppercase tracking-[0.2em] text-[rgba(28,25,23,0.4)]">Player</th>
-                      <th className="px-5 py-2.5 text-[10px] font-bold uppercase tracking-[0.2em] text-[rgba(28,25,23,0.4)]">Parallel</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {checklist.filter(c => !c.collected).map((card) => (
-                      <tr key={card.id} className="border-b border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.02)]">
-                        <td className="px-5 py-2.5 font-mono text-[12px] text-[rgba(28,25,23,0.4)]">#{card.card_number}</td>
-                        <td className="px-5 py-2.5 font-semibold text-[#1c1917]">{card.player_name}</td>
-                        <td className="px-5 py-2.5 text-[12px] text-[rgba(28,25,23,0.5)]">{card.parallel || "Base"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </div>
-        </div>
+        <MissingCardsModal
+          missing={checklist.filter(c => !c.collected)}
+          onClose={() => setShowMissing(false)}
+          onMarkCollected={async (ids) => {
+            if (!user) return;
+            const supabase = getBrowserSupabase();
+            if (!supabase) return;
+            await Promise.all(ids.map(id =>
+              supabase.from("user_binder_progress").upsert({ user_id: user.id, checklist_id: id }, { onConflict: "user_id,checklist_id" })
+            ));
+            setChecklist(prev => prev.map(c => ids.includes(c.id) ? { ...c, collected: true } : c));
+          }}
+        />
       )}
 
-      {/* Upload modal */}
+            {/* Upload modal */}
       {uploadCard && (
         <UploadModal
           card={uploadCard}

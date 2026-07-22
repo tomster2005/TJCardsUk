@@ -120,7 +120,7 @@ export function CartDrawer() {
               <span className="text-zinc-800">Total</span>
               <span className="text-[#c89b3c]">{formatGBP(grandTotal)}</span>
             </div>
-            <Link href="/checkout" onClick={closeCart} className="block w-full rounded-full py-3.5 text-center text-sm font-black text-[#1a0e00] transition hover:-translate-y-0.5" style={{ background: "linear-gradient(135deg, #f5d97a, #c89b3c)", boxShadow: "0 4px 20px rgba(200,155,60,0.35)" }}>
+            <Link href="/cart" onClick={closeCart} className="block w-full rounded-full py-3.5 text-center text-sm font-black text-[#1a0e00] transition hover:-translate-y-0.5" style={{ background: "linear-gradient(135deg, #f5d97a, #c89b3c)", boxShadow: "0 4px 20px rgba(200,155,60,0.35)" }}>
               Checkout →
             </Link>
             <button type="button" onClick={closeCart} className="block w-full rounded-full border border-[rgba(0,0,0,0.1)] py-2.5 text-center text-sm font-semibold text-zinc-500 transition hover:border-[rgba(0,0,0,0.15)] hover:text-zinc-700">

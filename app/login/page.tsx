@@ -45,11 +45,13 @@ export default function LoginPage() {
     if (user?.id) {
       const userRole = await fetchRole(user.id);
       setLoading(false);
+      router.refresh();
       router.push(userRole === "admin" ? "/admin" : "/dashboard");
       return;
     }
 
     setLoading(false);
+    router.refresh();
     router.push("/dashboard");
   };
 

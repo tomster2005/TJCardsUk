@@ -20,9 +20,12 @@ type CardRow = {
   slug?: string;
   team?: string;
   parallel?: string;
+  owner?: string | null;
+  copyOwners?: string;
+  stockBreakdown?: string | null;
 };
 
-type BulkAction = "publish" | "unpublish" | "set_name" | "price" | "stock" | "delete" | null;
+type BulkAction = "publish" | "unpublish" | "set_name" | "price" | "stock" | "owner" | "category" | "delete" | null;
 
 export default function CardsPage() {
   const { user, loading } = useAuth();
@@ -34,10 +37,18 @@ export default function CardsPage() {
   const [bulkAction, setBulkAction] = useState<BulkAction>(null);
   const [bulkValue, setBulkValue] = useState("");
   const [bulkLoading, setBulkLoading] = useState(false);
-  const [filterSet, setFilterSet] = useState("all");
-  const [filterStatus, setFilterStatus] = useState("all");
-  const [filterParallel, setFilterParallel] = useState("all");
-  const [search, setSearch] = useState("");
+  const [filterSet, setFilterSet] = useState(() => { try { return JSON.parse(sessionStorage.getItem("admin_cards_filters") ?? "{}").filterSet ?? "all"; } catch { return "all"; } });
+  const [filterStatus, setFilterStatus] = useState(() => { try { return JSON.parse(sessionStorage.getItem("admin_cards_filters") ?? "{}").filterStatus ?? "all"; } catch { return "all"; } });
+  const [filterParallel, setFilterParallel] = useState(() => { try { return JSON.parse(sessionStorage.getItem("admin_cards_filters") ?? "{}").filterParallel ?? "all"; } catch { return "all"; } });
+  const [filterOwner, setFilterOwner] = useState(() => { try { return JSON.parse(sessionStorage.getItem("admin_cards_filters") ?? "{}").filterOwner ?? "all"; } catch { return "all"; } });
+  const [search, setSearch] = useState(() => { try { return JSON.parse(sessionStorage.getItem("admin_cards_filters") ?? "{}").search ?? ""; } catch { return ""; } });
+  const [cardNumFrom, setCardNumFrom] = useState(() => { try { return JSON.parse(sessionStorage.getItem("admin_cards_filters") ?? "{}").cardNumFrom ?? ""; } catch { return ""; } });
+  const [cardNumTo, setCardNumTo] = useState(() => { try { return JSON.parse(sessionStorage.getItem("admin_cards_filters") ?? "{}").cardNumTo ?? ""; } catch { return ""; } });
+  const [sortBy, setSortBy] = useState(() => { try { return JSON.parse(sessionStorage.getItem("admin_cards_filters") ?? "{}").sortBy ?? "newest"; } catch { return "newest"; } });
+
+  useEffect(() => {
+    try { sessionStorage.setItem("admin_cards_filters", JSON.stringify({ filterSet, filterStatus, filterParallel, filterOwner, search, cardNumFrom, cardNumTo, sortBy })); } catch {}
+  }, [filterSet, filterStatus, filterParallel, filterOwner, search, cardNumFrom, cardNumTo, sortBy]);
 
   useEffect(() => {
     if (!loading && !user) router.push("/login");
@@ -50,10 +61,40 @@ export default function CardsPage() {
     setIsLoadingCards(true);
     setLoadError(null);
     (async () => {
-      const { data, error } = await supabase.from("cards").select("*").order("created_at", { ascending: false });
+      const [{ data, error }, { data: copies }] = await Promise.all([
+        supabase.from("cards").select("*").order("created_at", { ascending: false }),
+        supabase.from("card_copies").select("card_id, owner").eq("sold", false),
+      ]);
       if (!mounted) return;
       if (error) { setLoadError(error.message); setCards([]); setIsLoadingCards(false); return; }
-      setCards((data ?? []) as CardRow[]);
+
+      // Build owner summary per card from unsold copies
+      const copyMap = new Map<string, string[]>();
+      const stockBreakdown = new Map<string, string>();
+      for (const copy of (copies ?? [])) {
+        const existing = copyMap.get(copy.card_id) ?? [];
+        if (!existing.includes(copy.owner)) existing.push(copy.owner);
+        copyMap.set(copy.card_id, existing);
+      }
+
+      // Build stock breakdown per card e.g. "3 Tom · 1 Joint"
+      const stockMap = new Map<string, Record<string, number>>();
+      for (const copy of (copies ?? [])) {
+        const owners = stockMap.get(copy.card_id) ?? {};
+        owners[copy.owner] = (owners[copy.owner] ?? 0) + 1;
+        stockMap.set(copy.card_id, owners);
+      }
+      for (const [cardId, owners] of stockMap.entries()) {
+        const parts = Object.entries(owners).sort().map(([o, n]) => `${n} ${o}`);
+        stockBreakdown.set(cardId, parts.join(' · '));
+      }
+
+      const mapped = (data ?? []).map((c: any) => ({
+        ...c,
+        copyOwners: copyMap.get(c.id)?.sort().join("/") ?? null,
+        stockBreakdown: stockBreakdown.get(c.id) ?? null,
+      }));
+      setCards(mapped as CardRow[]);
       setIsLoadingCards(false);
     })();
     return () => { mounted = false; };
@@ -64,6 +105,13 @@ export default function CardsPage() {
     if (filterSet !== "all" && c.set_name !== filterSet) return false;
     if (filterStatus !== "all" && c.status !== filterStatus) return false;
     if (filterParallel !== "all" && (c.parallel || "") !== filterParallel) return false;
+    if (filterOwner !== "all" && (c.owner || "") !== filterOwner) return false;
+    if (cardNumFrom !== "" || cardNumTo !== "") {
+      const num = parseInt(c.card_number ?? "");
+      if (isNaN(num)) return false;
+      if (cardNumFrom !== "" && num < parseInt(cardNumFrom)) return false;
+      if (cardNumTo !== "" && num > parseInt(cardNumTo)) return false;
+    }
     if (search) {
       const q = search.toLowerCase();
       if (
@@ -74,6 +122,13 @@ export default function CardsPage() {
       ) return false;
     }
     return true;
+  }).sort((a, b) => {
+    if (sortBy === "num_asc") return (parseInt(a.card_number ?? "0") || 0) - (parseInt(b.card_number ?? "0") || 0);
+    if (sortBy === "num_desc") return (parseInt(b.card_number ?? "0") || 0) - (parseInt(a.card_number ?? "0") || 0);
+    if (sortBy === "price_asc") return (a.price ?? 0) - (b.price ?? 0);
+    if (sortBy === "price_desc") return (b.price ?? 0) - (a.price ?? 0);
+    if (sortBy === "owner") return (a.owner ?? "").localeCompare(b.owner ?? "");
+    return 0; // newest (default, already ordered by created_at desc from DB)
   });
 
   const sets = Array.from(new Set(cards.map((c) => c.set_name).filter(Boolean))).sort();
@@ -123,6 +178,12 @@ export default function CardsPage() {
         if (isNaN(price)) { setBulkLoading(false); return; }
         await supabase.from("cards").update({ price }).in("id", ids);
         setCards((cur) => cur.map((c) => selected.has(c.id) ? { ...c, price } : c));
+      } else if (bulkAction === "owner" && bulkValue.trim()) {
+        await supabase.from("cards").update({ owner: bulkValue.trim() }).in("id", ids);
+        setCards((cur) => cur.map((c) => selected.has(c.id) ? { ...c, owner: bulkValue.trim() } : c));
+      } else if (bulkAction === "category" && bulkValue.trim()) {
+        await supabase.from("cards").update({ category: bulkValue.trim() }).in("id", ids);
+        setCards((cur) => cur.map((c) => selected.has(c.id) ? { ...c, category: bulkValue.trim() } : c));
       } else if (bulkAction === "stock" && bulkValue.trim()) {
         const stock = parseInt(bulkValue);
         if (isNaN(stock)) { setBulkLoading(false); return; }
@@ -159,9 +220,7 @@ export default function CardsPage() {
             <h1 className="text-3xl font-semibold text-zinc-900">Cards</h1>
             <p className="mt-2 text-sm text-zinc-600">Manage card drafts, published listings, and stock levels.</p>
           </div>
-          <Link href="/admin/cards/new" className="rounded-full border border-amber-400/40 bg-amber-100/90 px-4 py-2 text-sm font-semibold text-amber-900">
-            Add Card
-          </Link>
+          <Link href="/admin/cards/new" className="rounded-full border border-amber-400/40 bg-amber-100/90 px-4 py-2 text-sm font-semibold text-amber-900">Add Card</Link>
         </div>
         <div className="mt-6 grid gap-4 sm:grid-cols-3">
           <div className="rounded-2xl border border-slate-300/60 bg-white/90 p-4 text-center">
@@ -187,6 +246,11 @@ export default function CardsPage() {
           placeholder="Search player, card #, team..."
           className="flex-1 min-w-[200px] rounded-xl border border-slate-300/60 bg-white px-4 py-2.5 text-sm outline-none focus:border-amber-300"
         />
+        <div className="flex items-center gap-1">
+          <input value={cardNumFrom} onChange={(e) => setCardNumFrom(e.target.value)} placeholder="# from" type="number" className="w-20 rounded-xl border border-slate-300/60 bg-white px-3 py-2.5 text-sm outline-none focus:border-amber-300" />
+          <span className="text-zinc-400 text-sm">–</span>
+          <input value={cardNumTo} onChange={(e) => setCardNumTo(e.target.value)} placeholder="# to" type="number" className="w-20 rounded-xl border border-slate-300/60 bg-white px-3 py-2.5 text-sm outline-none focus:border-amber-300" />
+        </div>
         <select value={filterSet} onChange={(e) => setFilterSet(e.target.value)} className="rounded-xl border border-slate-300/60 bg-white px-3 py-2.5 text-sm">
           <option value="all">All sets</option>
           {sets.map((s) => <option key={s} value={s!}>{s}</option>)}
@@ -199,9 +263,25 @@ export default function CardsPage() {
         {parallels.length > 0 && (
           <select value={filterParallel} onChange={(e) => setFilterParallel(e.target.value)} className="rounded-xl border border-slate-300/60 bg-white px-3 py-2.5 text-sm">
             <option value="all">All parallels</option>
+            <option value="">Base only</option>
             {parallels.map((p) => <option key={p} value={p!}>{p}</option>)}
           </select>
         )}
+        <select value={filterOwner} onChange={(e) => setFilterOwner(e.target.value)} className="rounded-xl border border-slate-300/60 bg-white px-3 py-2.5 text-sm">
+          <option value="all">All owners</option>
+          <option value="Tom">Tom</option>
+          <option value="Jamie">Jamie</option>
+          <option value="Joint">Joint</option>
+          <option value="">Unset</option>
+        </select>
+        <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="rounded-xl border border-slate-300/60 bg-white px-3 py-2.5 text-sm">
+          <option value="newest">Newest first</option>
+          <option value="num_asc"># Low → High</option>
+          <option value="num_desc"># High → Low</option>
+          <option value="price_asc">Price Low → High</option>
+          <option value="price_desc">Price High → Low</option>
+          <option value="owner">Owner A → Z</option>
+        </select>
       </div>
 
       {/* Bulk Action Toolbar */}
@@ -221,9 +301,31 @@ export default function CardsPage() {
             <option value="set_name">Change set name</option>
             <option value="price">Set price</option>
             <option value="stock">Set stock</option>
+            <option value="owner">Set owner</option>
+            <option value="category">Set category</option>
             <option value="delete">Delete all</option>
           </select>
 
+          {bulkAction === "category" && (
+            <select value={bulkValue} onChange={(e) => setBulkValue(e.target.value)} className="rounded-lg border border-amber-300/50 bg-white px-3 py-1.5 text-sm">
+              <option value="">Select category...</option>
+              <option value="Football">⚽ Football</option>
+              <option value="Disney">✨ Disney</option>
+              <option value="Basketball">🏀 Basketball</option>
+              <option value="Rugby">🏉 Rugby</option>
+              <option value="Cricket">🏏 Cricket</option>
+              <option value="Baseball">⚾ Baseball</option>
+              <option value="Other">🃏 Other</option>
+            </select>
+          )}
+          {bulkAction === "owner" && (
+            <select value={bulkValue} onChange={(e) => setBulkValue(e.target.value)} className="rounded-lg border border-amber-300/50 bg-white px-3 py-1.5 text-sm">
+              <option value="">Select owner...</option>
+              <option value="Tom">Tom</option>
+              <option value="Jamie">Jamie</option>
+              <option value="Joint">Joint</option>
+            </select>
+          )}
           {(bulkAction === "set_name" || bulkAction === "price" || bulkAction === "stock") && (
             <input
               value={bulkValue}
@@ -281,6 +383,7 @@ export default function CardsPage() {
                   <th className="pb-3 pr-3">Set</th>
                   <th className="pb-3 pr-3">Price</th>
                   <th className="pb-3 pr-3">Stock</th>
+                  <th className="pb-3 pr-3">Owner</th>
                   <th className="pb-3 pr-3">Status</th>
                   <th className="pb-3">Actions</th>
                 </tr>
@@ -307,13 +410,29 @@ export default function CardsPage() {
                     <td className="py-3 pr-3 font-medium text-zinc-900">{c.player || c.title || "Untitled"}</td>
                     <td className="py-3 pr-3 text-zinc-600">{c.set_name || "-"}</td>
                     <td className="py-3 pr-3 text-zinc-800">{typeof c.price === "number" ? formatGBP(c.price) : "-"}</td>
-                    <td className="py-3 pr-3 text-zinc-800">{c.stock ?? 0}</td>
+                    <td className="py-3 pr-3 text-zinc-800">
+                      {c.stockBreakdown ? (
+                        <span className="text-xs text-zinc-600">{c.stockBreakdown}</span>
+                      ) : (
+                        c.stock ?? 0
+                      )}
+                    </td>
+                    <td className="py-3 pr-3">
+                      {c.copyOwners ? (
+                        <span className="text-xs font-semibold text-zinc-700">{c.copyOwners}</span>
+                      ) : (
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
+                          c.owner === "Tom" ? "bg-blue-100 text-blue-800" :
+                          c.owner === "Jamie" ? "bg-purple-100 text-purple-800" :
+                          c.owner === "Joint" ? "bg-amber-100 text-amber-800" :
+                          "bg-slate-100 text-slate-500"
+                        }`}>{c.owner || "—"}</span>
+                      )}
+                    </td>
                     <td className="py-3 pr-3">
                       <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
                         c.status === "published" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
-                      }`}>
-                        {c.status || "draft"}
-                      </span>
+                      }`}>{c.status || "draft"}</span>
                     </td>
                     <td className="py-3">
                       <div className="flex gap-1.5">

@@ -25,13 +25,25 @@ export function CatalogueGrid() {
   const [parallelFilter, setParallelFilter] = useState(() => { try { return JSON.parse(sessionStorage.getItem("catalogue_filters") ?? "{}").parallelFilter ?? "all"; } catch { return "all"; } });
   const [inStockOnly, setInStockOnly] = useState(() => { try { return JSON.parse(sessionStorage.getItem("catalogue_filters") ?? "{}").inStockOnly ?? false; } catch { return false; } });
   const [sortBy, setSortBy] = useState<SortOption>(() => { try { return JSON.parse(sessionStorage.getItem("catalogue_filters") ?? "{}").sortBy ?? "cardNumber"; } catch { return "cardNumber"; } });
-  const [showFilters, setShowFilters] = useState(() => { try { const f = JSON.parse(sessionStorage.getItem("catalogue_filters") ?? "{}"); return f.setFilter !== "all" || f.teamFilter !== "all" || f.parallelFilter !== "all" || f.inStockOnly; } catch { return false; } });
+  const [showFilters, setShowFilters] = useState(false);
+  const [filtersRestored, setFiltersRestored] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     sessionStorage.setItem("catalogue_filters", JSON.stringify({ query, setFilter, teamFilter, parallelFilter, inStockOnly, sortBy }));
   }, [query, setFilter, teamFilter, parallelFilter, inStockOnly, sortBy]);
+
+  useEffect(() => {
+    if (filtersRestored) return;
+    try {
+      const f = JSON.parse(sessionStorage.getItem("catalogue_filters") ?? "{}");
+      if (f.setFilter !== "all" || f.teamFilter !== "all" || f.parallelFilter !== "all" || f.inStockOnly) {
+        setShowFilters(true);
+      }
+    } catch {}
+    setFiltersRestored(true);
+  }, [filtersRestored]);
 
   const options = useMemo(() => ({
     sets: Array.from(new Set(cards.map((c) => c.setName))).sort(),
@@ -54,6 +66,7 @@ export function CatalogueGrid() {
       const seen = new Map<string, any>();
       const parallelsByKey = new Map<string, string[]>();
       const allParallelNames = new Set<string>();
+      const parallelRows = new Map<string, Map<string, any>>(); // key -> parallel -> row
 
       for (const d of (data ?? [])) {
         const key = `${d.set_name ?? ""}__${d.card_number ?? ""}`;
@@ -61,6 +74,9 @@ export function CatalogueGrid() {
           allParallelNames.add(d.parallel);
           const existing = parallelsByKey.get(key) ?? [];
           parallelsByKey.set(key, [...existing, d.parallel]);
+          const pMap = parallelRows.get(key) ?? new Map();
+          pMap.set(d.parallel, d);
+          parallelRows.set(key, pMap);
         }
         const existingBase = seen.get(key);
         if (!existingBase || (!d.parallel && existingBase.parallel)) {
@@ -78,6 +94,8 @@ export function CatalogueGrid() {
         const rawStock = Number(d.stock ?? d.quantity);
         const availableQuantity = Number.isFinite(rawStock) ? Math.max(0, rawStock) : undefined;
         const { setSlug, cardSlug } = buildPublicCardSlugs({ setName, title, player: d.player, cardNumber });
+        // Store parallel rows so we can swap image when filtering
+        const parallelRowMap = parallelRows.get(key) ?? new Map();
         return {
           id: d.id, playerName: d.player ?? "Unknown", cardNumber: cardNumber || "?",
           availableQuantity, team: d.team ?? "", setName, brand: d.brand ?? "",
@@ -91,6 +109,7 @@ export function CatalogueGrid() {
           parallel: d.parallel ?? "",
           category: d.category ?? "",
           variantParallels: parallelsByKey.get(key) ?? [],
+          parallelRowMap,
           slug: d.slug ?? "", setSlug, cardSlug,
         };
       });
@@ -107,9 +126,34 @@ export function CatalogueGrid() {
         if (q && !c.playerName.toLowerCase().includes(q) && !c.team.toLowerCase().includes(q) && !c.setName.toLowerCase().includes(q) && !c.cardNumber.toLowerCase().includes(q)) return false;
         if (setFilter !== "all" && c.setName !== setFilter) return false;
         if (teamFilter !== "all" && c.team !== teamFilter) return false;
-        if (parallelFilter !== "all" && !(c as any).variantParallels?.includes(parallelFilter)) return false;
+        if (parallelFilter !== "all") {
+          if (parallelFilter === "") {
+            if (c.parallel) return false;
+          } else {
+            if (!(c as any).variantParallels?.includes(parallelFilter)) return false;
+          }
+        }
         if (inStockOnly && c.stockStatus !== "In stock") return false;
         return true;
+      })
+      .map((c) => {
+        // If filtering by a specific parallel, swap image/price/stock from that parallel row
+        if (parallelFilter && parallelFilter !== "all" && parallelFilter !== "") {
+          const pRow = (c as any).parallelRowMap?.get(parallelFilter);
+          if (pRow) {
+            const rawStock = Number(pRow.stock ?? 0);
+            return {
+              ...c,
+              imageUrl: pRow.image_url ?? c.imageUrl,
+              backImageUrl: pRow.back_image_url ?? c.backImageUrl,
+              price: Number(pRow.price ?? c.price),
+              availableQuantity: Math.max(0, rawStock),
+              stockStatus: rawStock > 0 ? "In stock" : "Out of stock",
+              id: pRow.id,
+            };
+          }
+        }
+        return c;
       })
       .sort((a, b) => {
         if (sortBy === "playerName") return a.playerName.localeCompare(b.playerName);
