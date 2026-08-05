@@ -414,7 +414,8 @@ export function BinderView() {
       .select("*")
       .eq("set_id", activeSetId)
       .order("page_number")
-      .order("position");
+      .order("position")
+      .range(0, 9999);
 
     if (checklistError || !checklistData || checklistData.length === 0) {
       setChecklist([]);
@@ -432,23 +433,28 @@ export function BinderView() {
             .select("checklist_id")
             .eq("user_id", user.id)
             .in("checklist_id", checklistIds)
+            .range(0, 9999)
         : Promise.resolve({ data: null }),
       supabase
         .from("cards")
-        .select("card_number, image_url, image_front, stock, set_name, is_base_variant")
+        .select("card_number, image_url, image_front, stock, set_name, is_base_variant, parallel")
         .eq("set_name", activeSet?.title || "")
-        .order("is_base_variant", { ascending: false }),
+        .order("is_base_variant", { ascending: false })
+        .order("parallel", { ascending: true, nullsFirst: true })
+        .range(0, 9999),
       supabase
         .from("community_images")
-        .select("checklist_id, image_url, username")
+        .select("checklist_id, image_url, username, binder_checklist!inner(set_id, parallel)")
         .eq("status", "approved")
-        .in("checklist_id", checklistIds),
+        .eq("binder_checklist.set_id", activeSetId)
+                .range(0, 9999),
       user
         ? supabase
             .from("personal_card_images")
             .select("checklist_id, image_url, prefer_personal")
             .eq("user_id", user.id)
             .in("checklist_id", checklistIds)
+            .range(0, 9999)
         : Promise.resolve({ data: null }),
     ]);
 
@@ -459,32 +465,40 @@ export function BinderView() {
     const communityData = communityResult.data;
     const personalData = personalResult.data;
 
-    const cardLookup = new Map<string, { image_url: string | null; stock: number }>();
+    const cardLookup = new Map<string, { image_url: string | null; stock: number; isBase: boolean }>();
     if (cardsData) {
       for (const c of cardsData) {
         const existing = cardLookup.get(c.card_number);
-        // Prefer base variant image — only overwrite if this is a base variant or no entry yet
-        if (!existing || c.is_base_variant) {
-          cardLookup.set(c.card_number, {
-            image_url: c.image_url || c.image_front || null,
-            stock: c.stock || 0,
-          });
+        const isBase = !c.parallel || c.parallel.trim() === "";
+        if (!existing) {
+          cardLookup.set(c.card_number, { image_url: c.image_url || c.image_front || null, stock: c.stock || 0, isBase });
+        } else if (isBase && !existing.isBase) {
+          // Base card beats parallel — replace image but keep accumulated stock
+          cardLookup.set(c.card_number, { image_url: c.image_url || c.image_front || null, stock: existing.stock + (c.stock || 0), isBase: true });
         } else {
-          // Keep existing but accumulate stock
+          // Same tier — accumulate stock only, keep existing image
           cardLookup.set(c.card_number, { ...existing, stock: existing.stock + (c.stock || 0) });
         }
       }
     }
 
+    // Build image lookup: for each checklist card_number, find the best image.
+    // Priority: cards table (no parallel) > cards table (any) > community_images (Admin, no parallel) > community_images (Admin, any)
+    const adminImageLookup = new Map<string, string>(); // keyed by checklist_id
     const communityLookup = new Map<string, { image_url: string; username: string }>();
+
     if (communityData) {
-      for (const c of communityData) {
-        if (!communityLookup.has(c.checklist_id)) {
-          communityLookup.set(c.checklist_id, { image_url: c.image_url, username: c.username || "Anonymous" });
+      for (const ci of communityData) {
+        const sp = (ci.binder_checklist as any)?.parallel;
+        const isBase2 = !sp || sp.trim() === "";
+        if (ci.username === "Admin") {
+          // Only set if base slot, or no entry yet
+          if (isBase2 || !adminImageLookup.has(ci.checklist_id)) adminImageLookup.set(ci.checklist_id, ci.image_url);
+        } else {
+          if (isBase2 || !communityLookup.has(ci.checklist_id)) communityLookup.set(ci.checklist_id, { image_url: ci.image_url, username: ci.username || "Anonymous" });
         }
       }
     }
-
     const personalLookup = new Map<string, { image_url: string; prefer_personal: boolean }>();
     if (personalData) {
       for (const p of personalData) {
@@ -494,13 +508,19 @@ export function BinderView() {
 
     const merged: ChecklistCard[] = checklistData.map((item) => {
       const match = cardLookup.get(item.card_number);
+      const adminImage = adminImageLookup.get(item.id);
       const community = communityLookup.get(item.id);
+      // Priority for image_url: admin bulk-upload image > cards table image
+      const officialImage = adminImage || match?.image_url || null;
+      // community_image is only non-admin user submissions
+      const communityImage = community && community.username !== "Admin" ? community.image_url : null;
+      const communityCredit = community && community.username !== "Admin" ? community.username : null;
       return {
         ...item,
-        image_url: match?.image_url || null,
+        image_url: officialImage,
         stock: match?.stock || 0,
-        community_image: community?.image_url || null,
-        community_credit: community?.username || null,
+        community_image: communityImage,
+        community_credit: communityCredit,
         personal_image: personalLookup.get(item.id)?.image_url || null,
         prefer_personal: personalLookup.get(item.id)?.prefer_personal ?? false,
         collected: collectedSet.has(item.id),
@@ -671,96 +691,107 @@ export function BinderView() {
         {tabBar}
         <div className="space-y-10">
         {/* Hero */}
-        <div className="relative overflow-hidden rounded-3xl px-8 py-14 text-center" style={{ background: "linear-gradient(160deg, #0d0d0f 0%, #1a0e06 40%, #2d1a0a 70%, #0d0d0f 100%)", border: "1px solid rgba(200,155,60,0.15)" }}>
-          {/* Animated grid overlay */}
-          <div className="pointer-events-none absolute inset-0 opacity-[0.04]" style={{ backgroundImage: "linear-gradient(rgba(200,155,60,0.3) 1px, transparent 1px), linear-gradient(90deg, rgba(200,155,60,0.3) 1px, transparent 1px)", backgroundSize: "60px 60px" }} />
-          {/* Floating glow orbs */}
-          <div className="pointer-events-none absolute -left-20 -top-20 h-60 w-60 rounded-full opacity-20 animate-pulse" style={{ background: "radial-gradient(circle, rgba(200,155,60,0.4), transparent 70%)" }} />
-          <div className="pointer-events-none absolute -bottom-20 -right-20 h-80 w-80 rounded-full opacity-15 animate-pulse" style={{ background: "radial-gradient(circle, rgba(200,155,60,0.3), transparent 70%)", animationDelay: "1s" }} />
-
-          <div className="relative z-10">
-            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl" style={{ background: "linear-gradient(135deg, rgba(200,155,60,0.15), rgba(200,155,60,0.05))", border: "1px solid rgba(200,155,60,0.3)", boxShadow: "0 0 30px rgba(200,155,60,0.15)" }}>
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#c89b3c" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <div className="relative overflow-hidden rounded-2xl px-8 py-10 text-center" style={{ background: "linear-gradient(150deg, #1a0e06 0%, #2d1a0a 50%, #1a0e06 100%)", border: "1px solid rgba(200,155,60,0.2)" }}>
+          <div className="pointer-events-none absolute inset-0 opacity-[0.035]" style={{ backgroundImage: "linear-gradient(rgba(200,155,60,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(200,155,60,0.5) 1px, transparent 1px)", backgroundSize: "48px 48px" }} />
+          <div className="pointer-events-none absolute left-1/2 top-0 h-40 w-96 -translate-x-1/2 opacity-30" style={{ background: "radial-gradient(ellipse, rgba(200,155,60,0.35), transparent 70%)" }} />
+          <div className="relative z-10 flex flex-col items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl" style={{ background: "rgba(200,155,60,0.12)", border: "1px solid rgba(200,155,60,0.3)", boxShadow: "0 0 20px rgba(200,155,60,0.2)" }}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#c89b3c" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" />
                 <path d="M8 7h6" /><path d="M8 11h4" />
               </svg>
             </div>
-            <span className="text-[11px] font-bold uppercase tracking-[0.4em] text-[var(--gold-500)]">The Vault</span>
-            <h1 className="mt-3 text-4xl font-black text-white font-display">Your Binders</h1>
-            <p className="mx-auto mt-2 max-w-md text-[14px] text-[rgba(255,255,255,0.5)]">
-              Open a binder to track your collection. Mark cards as collected and watch your progress grow.
-            </p>
+            <div>
+              <span className="text-[10px] font-bold uppercase tracking-[0.4em] text-[#c89b3c]">The Vault</span>
+              <h1 className="mt-1 text-3xl font-black text-white font-display">Your Binders</h1>
+              <p className="mx-auto mt-1.5 max-w-sm text-[13px] text-[rgba(255,255,255,0.45)]">
+                Open a binder to track your collection and watch your progress grow.
+              </p>
+            </div>
           </div>
         </div>
 
         {/* Binder cards */}
-        <div className="mx-auto grid w-full max-w-4xl gap-5 sm:grid-cols-2">
+        <div className="mx-auto grid w-full max-w-4xl gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {sets.map((s, idx) => {
             const isHidden = hiddenSetIds.has(s.id);
             return (
-              <div key={s.id} className={`relative transition-opacity duration-300 ${isHidden ? "opacity-40" : "opacity-100"}`}>
-                <div
-                  role="button"
-                  tabIndex={isHidden ? -1 : 0}
-                  onClick={() => !isHidden && setActiveSetId(s.id)}
-                  onKeyDown={(e) => e.key === "Enter" && !isHidden && setActiveSetId(s.id)}
-                  className={`group relative w-full overflow-hidden rounded-2xl text-left transition-all duration-400 ${isHidden ? "cursor-default" : "cursor-pointer hover:-translate-y-2 hover:scale-[1.02]"}`}
-                  style={{ animationDelay: `${idx * 100}ms` }}
-                >
-                  <div className="absolute inset-0" style={{ background: "linear-gradient(145deg, #1a0e06 0%, #2d1a0a 30%, #3d2410 60%, #2d1a0a 100%)" }} />
-                  <div className="pointer-events-none absolute inset-0 opacity-30" style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='80' height='80' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.15'/%3E%3C/svg%3E\")" }} />
-                  <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-500 group-hover:opacity-100" style={{ background: "linear-gradient(135deg, rgba(200,155,60,0.12) 0%, transparent 50%, rgba(200,155,60,0.08) 100%)" }} />
-                  <div className="pointer-events-none absolute inset-0 rounded-2xl opacity-0 transition-opacity duration-400 group-hover:opacity-100" style={{ boxShadow: "inset 0 0 0 1px rgba(200,155,60,0.4), 0 0 30px rgba(200,155,60,0.15)" }} />
-                  <div className="pointer-events-none absolute inset-0 rounded-2xl transition-opacity duration-400 group-hover:opacity-0" style={{ boxShadow: "inset 0 0 0 1px rgba(200,155,60,0.12)" }} />
-                  <div className="relative z-10 p-6">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl" style={{ background: "linear-gradient(135deg, rgba(200,155,60,0.2), rgba(200,155,60,0.05))", border: "1px solid rgba(200,155,60,0.25)" }}>
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#c89b3c" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" />
+              <div
+                key={s.id}
+                role="button"
+                tabIndex={isHidden ? -1 : 0}
+                onClick={() => !isHidden && setActiveSetId(s.id)}
+                onKeyDown={(e) => e.key === "Enter" && !isHidden && setActiveSetId(s.id)}
+                className={`group relative flex flex-col overflow-hidden rounded-2xl transition-all duration-300 ${
+                  isHidden ? "cursor-default opacity-40" : "cursor-pointer hover:-translate-y-1.5 hover:shadow-[0_8px_40px_rgba(200,155,60,0.2)]"
+                }`}
+                style={{
+                  background: "linear-gradient(160deg, #1e1108 0%, #2d1a0a 50%, #1a0e06 100%)",
+                  border: "1px solid rgba(200,155,60,0.18)",
+                  animationDelay: `${idx * 80}ms`,
+                }}
+              >
+                {/* Shimmer on hover */}
+                <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-500 group-hover:opacity-100" style={{ background: "linear-gradient(135deg, rgba(200,155,60,0.1) 0%, transparent 60%)" }} />
+                <div className="pointer-events-none absolute inset-0 rounded-2xl opacity-0 transition-opacity duration-300 group-hover:opacity-100" style={{ boxShadow: "inset 0 0 0 1px rgba(200,155,60,0.45)" }} />
+
+                <div className="relative z-10 flex flex-1 flex-col p-6">
+                  {/* Top row */}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl" style={{ background: "rgba(200,155,60,0.12)", border: "1px solid rgba(200,155,60,0.25)" }}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#c89b3c" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" />
+                      </svg>
+                    </div>
+                    <span className="rounded-full px-2.5 py-1 text-[10px] font-bold tracking-wide text-[#c89b3c]" style={{ background: "rgba(200,155,60,0.12)", border: "1px solid rgba(200,155,60,0.22)" }}>
+                      {s.total_cards} cards
+                    </span>
+                  </div>
+
+                  {/* Title + description */}
+                  <h3 className="mt-4 text-[17px] font-black leading-snug text-white transition-colors duration-200 group-hover:text-[#f5d97a]">{s.title}</h3>
+                  <p className="mt-1.5 min-h-[2.5rem] text-[12px] leading-relaxed text-[rgba(255,255,255,0.4)]">
+                    {s.description || "\u00a0"}
+                  </p>
+
+                  {/* Divider */}
+                  <div className="my-4 h-px" style={{ background: "rgba(200,155,60,0.12)" }} />
+
+                  {/* Footer row */}
+                  <div className="flex items-center justify-between gap-3">
+                    {isHidden ? (
+                      <p className="text-[12px] text-[rgba(255,255,255,0.25)]">Not collecting</p>
+                    ) : (
+                      <div className="flex items-center gap-1.5 text-[12px] font-bold text-[#c89b3c] transition-all duration-200 group-hover:gap-2.5">
+                        <span>Open binder</span>
+                        <svg width="13" height="13" viewBox="0 0 14 14" fill="none" className="transition-transform duration-200 group-hover:translate-x-0.5">
+                          <path d="M5 3L9 7L5 11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                         </svg>
                       </div>
-                      <span className="rounded-full px-2.5 py-1 text-[10px] font-bold text-[var(--gold-400)]" style={{ background: "rgba(200,155,60,0.1)", border: "1px solid rgba(200,155,60,0.2)" }}>
-                        {s.total_cards} cards
-                      </span>
-                    </div>
-                    <h3 className="mt-4 text-xl font-black text-white transition-colors group-hover:text-[var(--gold-300)]">{s.title}</h3>
-                    {s.description && <p className="mt-1.5 text-[12px] leading-relaxed text-[rgba(255,255,255,0.45)]">{s.description}</p>}
-                    <div className="mt-5 flex items-center justify-between gap-3">
-                      {isHidden ? (
-                        <p className="text-[12px] text-[rgba(255,255,255,0.3)]">Not collecting</p>
-                      ) : (
-                        <div className="flex items-center gap-2 text-[12px] font-bold text-[var(--gold-500)] transition-all duration-300 group-hover:gap-3">
-                          <span>Open binder</span>
-                          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="transition-transform duration-300 group-hover:translate-x-1">
-                            <path d="M5 3L9 7L5 11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                          </svg>
-                        </div>
-                      )}
-                      {user && (
-                        <button
-                          onClickCapture={(e) => { e.stopPropagation(); toggleHideSet(s.id); }}
-                          onClick={(e) => e.stopPropagation()}
-                          className="flex shrink-0 items-center gap-1.5"
-                          title={isHidden ? "Click to start collecting" : "Click to stop collecting"}
+                    )}
+                    {user && (
+                      <button
+                        onClickCapture={(e) => { e.stopPropagation(); toggleHideSet(s.id); }}
+                        onClick={(e) => e.stopPropagation()}
+                        className="flex shrink-0 items-center gap-1.5"
+                        title={isHidden ? "Start collecting" : "Stop collecting"}
+                      >
+                        <span className="text-[10px] font-semibold" style={{ color: isHidden ? "rgba(255,255,255,0.25)" : "#c89b3c" }}>
+                          {isHidden ? "Off" : "Collecting"}
+                        </span>
+                        <div
+                          className="relative h-5 w-9 rounded-full transition-all duration-300"
+                          style={{ background: isHidden ? "rgba(255,255,255,0.08)" : "rgba(200,155,60,0.3)", border: `1px solid ${isHidden ? "rgba(255,255,255,0.12)" : "rgba(200,155,60,0.5)"}` }}
                         >
-                          <span className="text-[10px] font-semibold" style={{ color: isHidden ? "rgba(255,255,255,0.3)" : "#c89b3c" }}>
-                            {isHidden ? "Off" : "Collecting"}
-                          </span>
                           <div
-                            className="relative h-5 w-9 rounded-full transition-all duration-300"
-                            style={{ background: isHidden ? "rgba(255,255,255,0.1)" : "rgba(200,155,60,0.35)", border: `1px solid ${isHidden ? "rgba(255,255,255,0.15)" : "rgba(200,155,60,0.5)"}` }}
-                          >
-                            <div
-                              className="absolute top-0.5 h-4 w-4 rounded-full transition-all duration-300"
-                              style={{ left: isHidden ? "2px" : "calc(100% - 18px)", background: isHidden ? "rgba(255,255,255,0.3)" : "#c89b3c", boxShadow: isHidden ? "none" : "0 0 6px rgba(200,155,60,0.6)" }}
-                            />
-                          </div>
-                        </button>
-                      )}
-                    </div>
+                            className="absolute top-0.5 h-4 w-4 rounded-full transition-all duration-300"
+                            style={{ left: isHidden ? "2px" : "calc(100% - 18px)", background: isHidden ? "rgba(255,255,255,0.25)" : "#c89b3c", boxShadow: isHidden ? "none" : "0 0 8px rgba(200,155,60,0.7)" }}
+                          />
+                        </div>
+                      </button>
+                    )}
                   </div>
                 </div>
-
               </div>
             );
           })}

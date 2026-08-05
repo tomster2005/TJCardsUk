@@ -17,12 +17,21 @@ interface ChecklistEntry {
   player_name: string;
 }
 
+interface ChecklistSlot {
+  id: string;
+  card_number: string;
+  player_name: string;
+  position: number;
+  hasImage: boolean;
+}
+
 interface BinderSet {
   id: string;
   title: string;
 }
 
 const STORAGE_KEY = "bulk-upload-progress";
+const FIELDS_KEY = "bulk-upload-fields";
 
 function loadProgress(): { batch: string | null; index: number; binderId: string | null; owner: string | null; category: string | null } {
   if (typeof window === "undefined") return { batch: null, index: 0, binderId: null, owner: null, category: null };
@@ -38,7 +47,22 @@ function saveProgress(batch: string | null, index: number, binderId: string | nu
 }
 
 function clearProgress() {
-  try { sessionStorage.removeItem(STORAGE_KEY); } catch {}
+  try { sessionStorage.removeItem(STORAGE_KEY); sessionStorage.removeItem(FIELDS_KEY); } catch {}
+}
+
+type FieldState = { title: string; cardNumber: string; setName: string; price: string; stock: string; status: string; team: string; brand: string; season: string; parallel: string; printRun: string; locked: Record<string, boolean> };
+
+function loadFields(): FieldState | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(FIELDS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return null;
+}
+
+function saveFields(fields: FieldState) {
+  try { sessionStorage.setItem(FIELDS_KEY, JSON.stringify(fields)); } catch {}
 }
 
 // Simple fuzzy match: Levenshtein distance
@@ -100,9 +124,9 @@ function ChecklistPicker({ checklist, onSelect }: { checklist: ChecklistEntry[];
       />
       {open && filtered.length > 0 && (
         <div className="absolute z-10 mt-1 w-full rounded-xl border border-slate-200 bg-white shadow-lg max-h-48 overflow-y-auto">
-          {filtered.map(entry => (
+          {filtered.map((entry, i) => (
             <button
-              key={entry.card_number}
+              key={`${entry.card_number}-${entry.player_name}-${i}`}
               onClick={() => { onSelect(entry); setQuery(""); setOpen(false); }}
               className="w-full px-3 py-2 text-left text-sm hover:bg-amber-50 flex justify-between"
             >
@@ -149,11 +173,30 @@ export default function ProcessBatchPage() {
   const [season, setSeason] = useState("");
   const [parallel, setParallel] = useState("");
   const [printRun, setPrintRun] = useState("");
+  const [locked, setLocked] = useState<Record<string, boolean>>({});
+
+  function toggleLock(field: string) {
+    setLocked(prev => ({ ...prev, [field]: !prev[field] }));
+  }
+
+  function clearUnlocked() {
+    if (!locked.setName) setSetName("");
+    if (!locked.team) setTeam("");
+    if (!locked.brand) setBrand("");
+    if (!locked.season) setSeason("");
+    if (!locked.parallel) setParallel("");
+    if (!locked.printRun) setPrintRun("");
+    if (!locked.price) setPrice("");
+    if (!locked.stock) setStock("1");
+    if (!locked.status) setStatus("draft");
+  }
   const [binderImageMode, setBinderImageMode] = useState(false);
   const [owner, setOwner] = useState<string | null>(null);
   const [category, setCategory] = useState<string | null>(null);
+  const [binderSlots, setBinderSlots] = useState<ChecklistSlot[]>([]);
+  const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null);
 
-  // Restore progress
+  // Restore fields from sessionStorage on mount
   useEffect(() => {
     const saved = loadProgress();
     if (saved.batch) {
@@ -163,11 +206,52 @@ export default function ProcessBatchPage() {
     if (saved.binderId) setSelectedBinder(saved.binderId);
     if (saved.owner) setOwner(saved.owner);
     if (saved.category) setCategory(saved.category);
+    const f = loadFields();
+    if (f) {
+      setTitle(f.title);
+      setCardNumber(f.cardNumber);
+      setSetName(f.setName);
+      setPrice(f.price);
+      setStock(f.stock);
+      setStatus(f.status);
+      setTeam(f.team);
+      setBrand(f.brand);
+      setSeason(f.season);
+      setParallel(f.parallel);
+      setPrintRun(f.printRun);
+      setLocked(f.locked);
+    }
   }, []);
+
+  // Persist fields whenever they change
+  useEffect(() => {
+    saveFields({ title, cardNumber, setName, price, stock, status, team, brand, season, parallel, printRun, locked });
+  }, [title, cardNumber, setName, price, stock, status, team, brand, season, parallel, printRun, locked]);
 
   useEffect(() => {
     if (selectedBatch) saveProgress(selectedBatch, currentIndex, selectedBinder, owner, category);
   }, [selectedBatch, currentIndex, selectedBinder, owner, category]);
+
+  // Load binder slots when card number changes
+  useEffect(() => {
+    if (!supabase || !selectedBinder || !cardNumber.trim()) { setBinderSlots([]); setSelectedSlotId(null); return; }
+    (async () => {
+      const { data: slots } = await supabase
+        .from("binder_checklist")
+        .select("id, card_number, player_name, position")
+        .eq("set_id", selectedBinder)
+        .eq("card_number", cardNumber.trim())
+        .order("position", { ascending: true });
+      if (!slots || slots.length <= 1) { setBinderSlots([]); setSelectedSlotId(null); return; }
+      const ids = slots.map((s: any) => s.id);
+      const { data: images } = await supabase.from("community_images").select("checklist_id").in("checklist_id", ids);
+      const withImages = new Set((images ?? []).map((i: any) => i.checklist_id));
+      const mapped: ChecklistSlot[] = slots.map((s: any) => ({ ...s, hasImage: withImages.has(s.id) }));
+      setBinderSlots(mapped);
+      const empty = mapped.find(s => !s.hasImage);
+      setSelectedSlotId(empty?.id ?? mapped[0].id);
+    })();
+  }, [supabase, selectedBinder, cardNumber]);
 
   // Load binder sets
   useEffect(() => {
@@ -351,36 +435,34 @@ export default function ProcessBatchPage() {
         setSaving(false);
         return;
       }
-      // Find the checklist row
-      const { data: clRow } = await supabase
+      // Find the checklist row — prefer base (no parallel) slot
+      const { data: clRows } = await supabase
         .from("binder_checklist")
-        .select("id")
+        .select("id, parallel")
         .eq("set_id", selectedBinder)
         .eq("card_number", safeCardNum)
-        .limit(1)
-        .single();
+        .order("position", { ascending: true });
 
-      if (!clRow) {
+      // Prefer the slot with no parallel; fall back to first
+      const clId = (clRows?.find((r: any) => !r.parallel || r.parallel.trim() === "") ?? clRows?.[0])?.id ?? null;
+
+      if (!clId) {
         setError(`No checklist entry found for card #${safeCardNum} in this binder.`);
         setSaving(false);
         return;
       }
 
-      // Upsert into community_images as approved (replaces any existing)
+      // Upsert into community_images as approved
+      await supabase.from("community_images").delete().eq("checklist_id", clId);
       const { error: imgErr } = await supabase
         .from("community_images")
-        .upsert(
-          { checklist_id: clRow.id, image_url: currentPair.front, username: "Admin", status: "approved", uploaded_by: null },
-          { onConflict: "checklist_id" }
-        );
+        .insert({ checklist_id: clId, image_url: currentPair.front, username: "Admin", status: "approved", uploaded_by: null, parallel: null });
 
       if (imgErr) { setError(imgErr.message); setSaving(false); return; }
 
-      // Also update the binder_checklist image_url directly so it shows without community lookup
-      await supabase.from("binder_checklist").update({ image_url: currentPair.front }).eq("id", clRow.id);
-
       setSaving(false);
       setTitle(""); setCardNumber(""); setOcrRawText(""); setMatchConfidence("");
+      clearUnlocked();
       if (currentIndex + 1 < pairs.length) {
         setCurrentIndex(currentIndex + 1);
       } else {
@@ -462,15 +544,33 @@ export default function ProcessBatchPage() {
       await supabase.from("card_copies").insert(copyRows);
     }
 
+    // If a binder is selected, also save the image to community_images
+    if (selectedBinder && currentPair.front) {
+      let targetId: string | null = selectedSlotId;
+      if (!targetId) {
+        // No duplicate slots — find base slot first, fall back to first
+        const { data: clRows } = await supabase
+          .from("binder_checklist")
+          .select("id, parallel")
+          .eq("set_id", selectedBinder)
+          .eq("card_number", safeCardNum)
+          .order("position", { ascending: true });
+        targetId = (clRows?.find((r: any) => !r.parallel || r.parallel.trim() === "") ?? clRows?.[0])?.id ?? null;
+      }
+      if (targetId) {
+        await supabase.from("community_images").delete().eq("checklist_id", targetId).eq("parallel", parallel.trim() || null);
+        await supabase.from("community_images").insert({ checklist_id: targetId, image_url: currentPair.front, username: "Admin", status: "approved", uploaded_by: null, parallel: parallel.trim() || null });
+      }
+    }
+
     setSaving(false);
     setTitle("");
     setCardNumber("");
-    setPrice("");
-    setStock("1");
-    setParallel("");
-    setPrintRun("");
+    clearUnlocked();
     setOcrRawText("");
     setMatchConfidence("");
+    setBinderSlots([]);
+    setSelectedSlotId(null);
 
     if (currentIndex + 1 < pairs.length) {
       setCurrentIndex(currentIndex + 1);
@@ -483,6 +583,7 @@ export default function ProcessBatchPage() {
   function handleSkip() {
     setTitle("");
     setCardNumber("");
+    clearUnlocked();
     setOcrRawText("");
     setMatchConfidence("");
     if (currentIndex + 1 < pairs.length) {
@@ -646,32 +747,55 @@ export default function ProcessBatchPage() {
                 <input value={cardNumber} onChange={e => setCardNumber(e.target.value)} className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
               </label>
               <label className="block">
-                <span className="text-sm text-zinc-700">Set</span>
+                <span className="text-sm text-zinc-700 flex items-center gap-2">Set <input type="checkbox" checked={!!locked.setName} onChange={() => toggleLock("setName")} className="accent-amber-500" title="Lock value" />{locked.setName && <span className="text-xs text-amber-600">locked</span>}</span>
                 <input value={setName} onChange={e => setSetName(e.target.value)} className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
               </label>
             </div>
+            {binderSlots.length > 1 && (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3">
+                <p className="text-xs font-semibold text-amber-800 mb-2">Multiple binder slots found — pick which slot this image goes into:</p>
+                <div className="flex flex-col gap-1.5">
+                  {binderSlots.map(slot => (
+                    <label key={slot.id} className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="binderSlot"
+                        value={slot.id}
+                        checked={selectedSlotId === slot.id}
+                        onChange={() => setSelectedSlotId(slot.id)}
+                        className="accent-amber-500"
+                      />
+                      <span className="text-xs text-zinc-700">
+                        Position {slot.position} — {slot.player_name}
+                        {slot.hasImage ? <span className="ml-1 text-emerald-600">(has image)</span> : <span className="ml-1 text-zinc-400">(empty)</span>}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
             {!binderImageMode && (
               <>
                 {category === "Football" && (
                   <div className="grid gap-4 sm:grid-cols-2">
                     <label className="block">
-                      <span className="text-sm text-zinc-700">Team</span>
+                      <span className="text-sm text-zinc-700 flex items-center gap-2">Team <input type="checkbox" checked={!!locked.team} onChange={() => toggleLock("team")} className="accent-amber-500" title="Lock" />{locked.team && <span className="text-xs text-amber-600">locked</span>}</span>
                       <input value={team} onChange={e => setTeam(e.target.value)} className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
                     </label>
                     <label className="block">
-                      <span className="text-sm text-zinc-700">Brand</span>
+                      <span className="text-sm text-zinc-700 flex items-center gap-2">Brand <input type="checkbox" checked={!!locked.brand} onChange={() => toggleLock("brand")} className="accent-amber-500" title="Lock" />{locked.brand && <span className="text-xs text-amber-600">locked</span>}</span>
                       <input value={brand} onChange={e => setBrand(e.target.value)} className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
                     </label>
                     <label className="block">
-                      <span className="text-sm text-zinc-700">Season</span>
+                      <span className="text-sm text-zinc-700 flex items-center gap-2">Season <input type="checkbox" checked={!!locked.season} onChange={() => toggleLock("season")} className="accent-amber-500" title="Lock" />{locked.season && <span className="text-xs text-amber-600">locked</span>}</span>
                       <input value={season} onChange={e => setSeason(e.target.value)} className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
                     </label>
                     <label className="block">
-                      <span className="text-sm text-zinc-700">Parallel</span>
+                      <span className="text-sm text-zinc-700 flex items-center gap-2">Parallel <input type="checkbox" checked={!!locked.parallel} onChange={() => toggleLock("parallel")} className="accent-amber-500" title="Lock" />{locked.parallel && <span className="text-xs text-amber-600">locked</span>}</span>
                       <input value={parallel} onChange={e => setParallel(e.target.value)} className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
                     </label>
                     <label className="block">
-                      <span className="text-sm text-zinc-700">Print Run (e.g. 150)</span>
+                      <span className="text-sm text-zinc-700 flex items-center gap-2">Print Run (e.g. 150) <input type="checkbox" checked={!!locked.printRun} onChange={() => toggleLock("printRun")} className="accent-amber-500" title="Lock" />{locked.printRun && <span className="text-xs text-amber-600">locked</span>}</span>
                       <input value={printRun} onChange={e => setPrintRun(e.target.value)} className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
                     </label>
                   </div>
@@ -679,11 +803,11 @@ export default function ProcessBatchPage() {
                 {category === "Disney" && (
                   <div className="grid gap-4 sm:grid-cols-2">
                     <label className="block">
-                      <span className="text-sm text-zinc-700">Parallel</span>
+                      <span className="text-sm text-zinc-700 flex items-center gap-2">Parallel <input type="checkbox" checked={!!locked.parallel} onChange={() => toggleLock("parallel")} className="accent-amber-500" title="Lock" />{locked.parallel && <span className="text-xs text-amber-600">locked</span>}</span>
                       <input value={parallel} onChange={e => setParallel(e.target.value)} className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
                     </label>
                     <label className="block">
-                      <span className="text-sm text-zinc-700">Print Run (e.g. 150)</span>
+                      <span className="text-sm text-zinc-700 flex items-center gap-2">Print Run (e.g. 150) <input type="checkbox" checked={!!locked.printRun} onChange={() => toggleLock("printRun")} className="accent-amber-500" title="Lock" />{locked.printRun && <span className="text-xs text-amber-600">locked</span>}</span>
                       <input value={printRun} onChange={e => setPrintRun(e.target.value)} className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
                     </label>
                   </div>
@@ -691,34 +815,34 @@ export default function ProcessBatchPage() {
                 {!category && (
                   <div className="grid gap-4 sm:grid-cols-2">
                     <label className="block">
-                      <span className="text-sm text-zinc-700">Team</span>
+                      <span className="text-sm text-zinc-700 flex items-center gap-2">Team <input type="checkbox" checked={!!locked.team} onChange={() => toggleLock("team")} className="accent-amber-500" title="Lock" />{locked.team && <span className="text-xs text-amber-600">locked</span>}</span>
                       <input value={team} onChange={e => setTeam(e.target.value)} className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
                     </label>
                     <label className="block">
-                      <span className="text-sm text-zinc-700">Parallel</span>
+                      <span className="text-sm text-zinc-700 flex items-center gap-2">Parallel <input type="checkbox" checked={!!locked.parallel} onChange={() => toggleLock("parallel")} className="accent-amber-500" title="Lock" />{locked.parallel && <span className="text-xs text-amber-600">locked</span>}</span>
                       <input value={parallel} onChange={e => setParallel(e.target.value)} className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
                     </label>
                     <label className="block">
-                      <span className="text-sm text-zinc-700">Brand</span>
+                      <span className="text-sm text-zinc-700 flex items-center gap-2">Brand <input type="checkbox" checked={!!locked.brand} onChange={() => toggleLock("brand")} className="accent-amber-500" title="Lock" />{locked.brand && <span className="text-xs text-amber-600">locked</span>}</span>
                       <input value={brand} onChange={e => setBrand(e.target.value)} className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
                     </label>
                     <label className="block">
-                      <span className="text-sm text-zinc-700">Season</span>
+                      <span className="text-sm text-zinc-700 flex items-center gap-2">Season <input type="checkbox" checked={!!locked.season} onChange={() => toggleLock("season")} className="accent-amber-500" title="Lock" />{locked.season && <span className="text-xs text-amber-600">locked</span>}</span>
                       <input value={season} onChange={e => setSeason(e.target.value)} className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
                     </label>
                   </div>
                 )}
                 <div className="grid gap-4 sm:grid-cols-3">
                   <label className="block">
-                    <span className="text-sm text-zinc-700">Price</span>
+                    <span className="text-sm text-zinc-700 flex items-center gap-2">Price <input type="checkbox" checked={!!locked.price} onChange={() => toggleLock("price")} className="accent-amber-500" title="Lock" />{locked.price && <span className="text-xs text-amber-600">locked</span>}</span>
                     <input value={price} onChange={e => setPrice(e.target.value)} type="number" step="0.01" className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
                   </label>
                   <label className="block">
-                    <span className="text-sm text-zinc-700">Stock</span>
+                    <span className="text-sm text-zinc-700 flex items-center gap-2">Stock <input type="checkbox" checked={!!locked.stock} onChange={() => toggleLock("stock")} className="accent-amber-500" title="Lock" />{locked.stock && <span className="text-xs text-amber-600">locked</span>}</span>
                     <input value={stock} onChange={e => setStock(e.target.value)} type="number" className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
                   </label>
                   <label className="block">
-                    <span className="text-sm text-zinc-700">Status</span>
+                    <span className="text-sm text-zinc-700 flex items-center gap-2">Status <input type="checkbox" checked={!!locked.status} onChange={() => toggleLock("status")} className="accent-amber-500" title="Lock" />{locked.status && <span className="text-xs text-amber-600">locked</span>}</span>
                     <select value={status} onChange={e => setStatus(e.target.value)} className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none">
                       <option value="draft">Draft</option>
                       <option value="published">Published</option>

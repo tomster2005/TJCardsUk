@@ -16,14 +16,14 @@ export function CatalogueGrid() {
   const cart = useCart();
   const [recentlyAddedCardId, setRecentlyAddedCardId] = useState<string | null>(null);
   const [cards, setCards] = useState<CatalogueCard[]>([]);
-  const [allParallels, setAllParallels] = useState<string[]>([]);
 
   // Initialise filters directly from sessionStorage to avoid restore/save race
   const [query, setQuery] = useState(() => { try { return JSON.parse(sessionStorage.getItem("catalogue_filters") ?? "{}").query ?? ""; } catch { return ""; } });
   const [setFilter, setSetFilter] = useState(() => { try { return JSON.parse(sessionStorage.getItem("catalogue_filters") ?? "{}").setFilter ?? "all"; } catch { return "all"; } });
   const [teamFilter, setTeamFilter] = useState(() => { try { return JSON.parse(sessionStorage.getItem("catalogue_filters") ?? "{}").teamFilter ?? "all"; } catch { return "all"; } });
   const [parallelFilter, setParallelFilter] = useState(() => { try { return JSON.parse(sessionStorage.getItem("catalogue_filters") ?? "{}").parallelFilter ?? "all"; } catch { return "all"; } });
-  const [inStockOnly, setInStockOnly] = useState(() => { try { return JSON.parse(sessionStorage.getItem("catalogue_filters") ?? "{}").inStockOnly ?? false; } catch { return false; } });
+  const [inStockOnly, setInStockOnly] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState("all");
   const [sortBy, setSortBy] = useState<SortOption>(() => { try { return JSON.parse(sessionStorage.getItem("catalogue_filters") ?? "{}").sortBy ?? "cardNumber"; } catch { return "cardNumber"; } });
   const [showFilters, setShowFilters] = useState(false);
   const [filtersRestored, setFiltersRestored] = useState(false);
@@ -31,7 +31,7 @@ export function CatalogueGrid() {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    sessionStorage.setItem("catalogue_filters", JSON.stringify({ query, setFilter, teamFilter, parallelFilter, inStockOnly, sortBy }));
+    sessionStorage.setItem("catalogue_filters", JSON.stringify({ query, setFilter, teamFilter, parallelFilter, inStockOnly, sortBy, categoryFilter }));
   }, [query, setFilter, teamFilter, parallelFilter, inStockOnly, sortBy]);
 
   useEffect(() => {
@@ -41,15 +41,24 @@ export function CatalogueGrid() {
       if (f.setFilter !== "all" || f.teamFilter !== "all" || f.parallelFilter !== "all" || f.inStockOnly) {
         setShowFilters(true);
       }
+      if (f.inStockOnly) setInStockOnly(f.inStockOnly);
+      if (f.categoryFilter && f.categoryFilter !== "all") setCategoryFilter(f.categoryFilter);
     } catch {}
     setFiltersRestored(true);
   }, [filtersRestored]);
 
-  const options = useMemo(() => ({
-    sets: Array.from(new Set(cards.map((c) => c.setName))).sort(),
-    teams: Array.from(new Set(cards.map((c) => c.team))).filter(Boolean).sort(),
-    parallels: allParallels,
-  }), [cards, allParallels]);
+  const options = useMemo(() => {
+    const setCards = cards.filter((c) => {
+      if (setFilter !== "all" && c.setName !== setFilter) return false;
+      if (categoryFilter !== "all" && (c as any).category !== categoryFilter) return false;
+      return true;
+    });
+    return {
+      sets: Array.from(new Set(cards.map((c) => c.setName))).sort(),
+      teams: Array.from(new Set(setCards.map((c) => c.team))).filter(Boolean).sort(),
+      parallels: Array.from(new Set(setCards.flatMap((c) => (c as any).variantParallels ?? []))).sort(),
+    };
+  }, [cards, setFilter, categoryFilter]);
 
   useEffect(() => {
     const supabase = getBrowserSupabase();
@@ -57,37 +66,42 @@ export function CatalogueGrid() {
     let mounted = true;
     setIsLoading(true);
     (async () => {
-      const { data, error } = await supabase.from("cards").select("*").eq("status", "published").order("card_number", { ascending: true });
+      const { data, error } = await supabase.from("cards").select("*").eq("status", "published").order("card_number", { ascending: true }).order("parallel", { ascending: true, nullsFirst: true });
       if (!mounted) return;
       if (error) { setLoadError(error.message); setIsLoading(false); return; }
 
-      // Deduplicate: one card per card_number+set_name, prefer no parallel (base)
-      // Also track which parallels exist per base card key
-      const seen = new Map<string, any>();
+      // Deduplicate: one card per set_name+card_number, prefer base (no parallel).
+      // Also collapse rows that share a variant_group_id — keep only the base.
+      const seen = new Map<string, any>(); // key -> row
+      const seenByGroup = new Map<string, string>(); // variant_group_id -> key
       const parallelsByKey = new Map<string, string[]>();
-      const allParallelNames = new Set<string>();
-      const parallelRows = new Map<string, Map<string, any>>(); // key -> parallel -> row
+      const parallelRows = new Map<string, Map<string, any>>();
 
       for (const d of (data ?? [])) {
-        const key = `${d.set_name ?? ""}__${d.card_number ?? ""}`;
+        const cardKey = `${d.set_name ?? ""}__${d.card_number ?? ""}`;
+        // If this card shares a variant_group_id with an already-seen card, use that card's key
+        const groupKey = d.variant_group_id ? (seenByGroup.get(d.variant_group_id) ?? cardKey) : cardKey;
+
         if (d.parallel) {
-          allParallelNames.add(d.parallel);
-          const existing = parallelsByKey.get(key) ?? [];
-          parallelsByKey.set(key, [...existing, d.parallel]);
-          const pMap = parallelRows.get(key) ?? new Map();
+          const existing = parallelsByKey.get(groupKey) ?? [];
+          if (!existing.includes(d.parallel)) parallelsByKey.set(groupKey, [...existing, d.parallel]);
+          const pMap = parallelRows.get(groupKey) ?? new Map();
           pMap.set(d.parallel, d);
-          parallelRows.set(key, pMap);
+          parallelRows.set(groupKey, pMap);
         }
-        const existingBase = seen.get(key);
+
+        const existingBase = seen.get(groupKey);
         if (!existingBase || (!d.parallel && existingBase.parallel)) {
-          seen.set(key, d);
+          seen.set(groupKey, d);
+          if (d.variant_group_id) seenByGroup.set(d.variant_group_id, groupKey);
+        } else if (!existingBase && d.variant_group_id) {
+          seenByGroup.set(d.variant_group_id, cardKey);
         }
       }
       const deduped = Array.from(seen.values());
-      setAllParallels(Array.from(allParallelNames).sort());
-
       const mapped = (deduped).map((d: any) => {
-        const key = `${d.set_name ?? ""}__${d.card_number ?? ""}`;
+        const cardKey = `${d.set_name ?? ""}__${d.card_number ?? ""}`;
+        const key = d.variant_group_id ? (seenByGroup.get(d.variant_group_id) ?? cardKey) : cardKey;
         const setName = d.set_name ?? d.setName ?? "";
         const title = d.title ?? d.player ?? "";
         const cardNumber = d.card_number ?? d.cardNumber ?? "";
@@ -134,6 +148,7 @@ export function CatalogueGrid() {
           }
         }
         if (inStockOnly && c.stockStatus !== "In stock") return false;
+        if (categoryFilter !== "all" && (c as any).category !== categoryFilter) return false;
         return true;
       })
       .map((c) => {
@@ -186,8 +201,8 @@ export function CatalogueGrid() {
 
           <div className="mt-8 flex flex-wrap gap-3">
             {[
-              { label: "⚽ Football", filter: () => { setSetFilter("all"); setTeamFilter("all"); }, active: !query && setFilter === "all" },
-              { label: "✨ Disney", filter: () => { setSetFilter("all"); }, active: false },
+              { label: "⚽ Football", filter: () => setCategoryFilter(categoryFilter === "Football" ? "all" : "Football"), active: categoryFilter === "Football" },
+              { label: "✨ Disney", filter: () => setCategoryFilter(categoryFilter === "Disney" ? "all" : "Disney"), active: categoryFilter === "Disney" },
               { label: "📦 In Stock", filter: () => setInStockOnly((v: boolean) => !v), active: inStockOnly },
             ].map((cat) => (
               <button
@@ -242,14 +257,16 @@ export function CatalogueGrid() {
 
         {showFilters && (
           <div className="animate-fade-up grid gap-3 rounded-2xl border border-[rgba(0,0,0,0.08)] bg-white p-4 sm:grid-cols-2">
-            <select value={setFilter} onChange={(e) => setSetFilter(e.target.value)} className="rounded-xl border border-[rgba(0,0,0,0.1)] bg-[#fafaf9] px-3 py-2.5 text-sm text-zinc-700 outline-none">
+            <select value={setFilter} onChange={(e) => { setSetFilter(e.target.value); setTeamFilter("all"); setParallelFilter("all"); }} className="rounded-xl border border-[rgba(0,0,0,0.1)] bg-[#fafaf9] px-3 py-2.5 text-sm text-zinc-700 outline-none">
               <option value="all">All sets</option>
               {options.sets.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
-            <select value={teamFilter} onChange={(e) => setTeamFilter(e.target.value)} className="rounded-xl border border-[rgba(0,0,0,0.1)] bg-[#fafaf9] px-3 py-2.5 text-sm text-zinc-700 outline-none">
-              <option value="all">All teams</option>
-              {options.teams.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
+            {options.teams.length > 0 && (
+              <select value={teamFilter} onChange={(e) => setTeamFilter(e.target.value)} className="rounded-xl border border-[rgba(0,0,0,0.1)] bg-[#fafaf9] px-3 py-2.5 text-sm text-zinc-700 outline-none">
+                <option value="all">All teams</option>
+                {options.teams.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+            )}
             {options.parallels.length > 0 && (
               <select value={parallelFilter} onChange={(e) => setParallelFilter(e.target.value)} className="rounded-xl border border-[rgba(0,0,0,0.1)] bg-[#fafaf9] px-3 py-2.5 text-sm text-zinc-700 outline-none">
                 <option value="all">All parallels</option>
@@ -301,23 +318,20 @@ export function CatalogueGrid() {
             return (
               <article
                 key={card.id}
-                className={`card-foil card-holo card-tilt group relative overflow-hidden rounded-2xl bg-white`}
-                style={{ border: "1px solid rgba(0,0,0,0.08)" }}
+                className={`card-foil card-holo group relative overflow-hidden rounded-2xl bg-white transition-transform duration-200`}
+                style={{ border: "1px solid rgba(0,0,0,0.08)", transformStyle: "preserve-3d" }}
                 onMouseMove={(e) => {
                   const rect = e.currentTarget.getBoundingClientRect();
                   const x = ((e.clientX - rect.left) / rect.width) * 100;
                   const y = ((e.clientY - rect.top) / rect.height) * 100;
                   e.currentTarget.style.setProperty("--foil-x", `${x}%`);
                   e.currentTarget.style.setProperty("--foil-y", `${y}%`);
-                  // 3D tilt
                   const tiltX = ((y - 50) / 50) * -4;
                   const tiltY = ((x - 50) / 50) * 4;
-                  const inner = e.currentTarget.querySelector('.card-tilt-inner') as HTMLElement;
-                  if (inner) inner.style.transform = `rotateX(${tiltX}deg) rotateY(${tiltY}deg)`;
+                  e.currentTarget.style.transform = `perspective(600px) rotateX(${tiltX}deg) rotateY(${tiltY}deg)`;
                 }}
                 onMouseLeave={(e) => {
-                  const inner = e.currentTarget.querySelector('.card-tilt-inner') as HTMLElement;
-                  if (inner) inner.style.transform = 'rotateX(0deg) rotateY(0deg)';
+                  e.currentTarget.style.transform = "perspective(600px) rotateX(0deg) rotateY(0deg)";
                 }}
               >
                 <Link
@@ -326,9 +340,9 @@ export function CatalogueGrid() {
                       ? `/catalogue/${(card as any).setSlug}/${(card as any).cardSlug}`
                       : buildPublicCardPath({ setName: card.setName, title: card.playerName, player: card.playerName, cardNumber: card.cardNumber })
                   }
-                  className="block card-tilt-inner"
+                  className="block"
                 >
-                  <div className="relative aspect-[2/3] overflow-hidden p-10">
+                  <div className="relative aspect-[2/3] overflow-hidden p-6">
                     {card.imageUrl ? (
                       <img src={card.imageUrl} alt={`${card.playerName} card`} className="h-full w-full rounded-xl object-contain bg-slate-50 transition-transform duration-500 group-hover:scale-[1.03]" />
                     ) : (

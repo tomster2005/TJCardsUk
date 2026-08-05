@@ -11,6 +11,7 @@ type UserBinder = {
   name: string;
   set_name: string;
   year: string;
+  description: string | null;
   cover_image_url: string | null;
   published: boolean;
   created_at: string;
@@ -97,6 +98,63 @@ function CreateBinderModal({ onClose, onCreated }: { onClose: () => void; onCrea
         <div className="mt-4 flex gap-2">
           <button onClick={handleCreate} disabled={saving} className="btn-gold flex-1 rounded-xl py-2 text-sm font-bold disabled:opacity-50">
             {saving ? "Creating..." : "Create Binder"}
+          </button>
+          <button onClick={onClose} className="rounded-xl border border-[var(--vault-border)] px-4 py-2 text-sm text-[rgba(28,25,23,0.6)]">Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EditBinderModal({ binder, onClose, onSaved }: { binder: UserBinder; onClose: () => void; onSaved: (updated: UserBinder) => void }) {
+  const [name, setName] = useState(binder.name);
+  const [binderSet, setBinderSet] = useState(binder.set_name);
+  const [year, setYear] = useState(binder.year);
+  const [description, setDescription] = useState(binder.description ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSave() {
+    if (!name.trim() || !binderSet.trim()) { setError("Name and Set are required."); return; }
+    const supabase = getBrowserSupabase();
+    if (!supabase) return;
+    setSaving(true);
+    setError("");
+    const { error: updateErr } = await supabase
+      .from("user_binders")
+      .update({ name: name.trim(), set_name: binderSet.trim(), year: year.trim(), description: description.trim() || null })
+      .eq("id", binder.id);
+    if (updateErr) { setError(updateErr.message); setSaving(false); return; }
+    onSaved({ ...binder, name: name.trim(), set_name: binderSet.trim(), year: year.trim(), description: description.trim() || null });
+    onClose();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-lg font-bold text-[#1c1917]">Edit Binder</h3>
+        <div className="mt-4 space-y-3">
+          <div>
+            <label className="text-xs font-semibold text-[rgba(28,25,23,0.6)]">Binder Name *</label>
+            <input value={name} onChange={(e) => setName(e.target.value)} className="mt-1 w-full rounded-xl border border-[var(--vault-border)] px-3 py-2 text-sm outline-none focus:border-[rgba(200,155,60,0.4)]" />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-[rgba(28,25,23,0.6)]">Set *</label>
+            <input value={binderSet} onChange={(e) => setBinderSet(e.target.value)} className="mt-1 w-full rounded-xl border border-[var(--vault-border)] px-3 py-2 text-sm outline-none focus:border-[rgba(200,155,60,0.4)]" />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-[rgba(28,25,23,0.6)]">Year</label>
+            <input value={year} onChange={(e) => setYear(e.target.value)} className="mt-1 w-full rounded-xl border border-[var(--vault-border)] px-3 py-2 text-sm outline-none focus:border-[rgba(200,155,60,0.4)]" />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-[rgba(28,25,23,0.6)]">Description</label>
+            <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} placeholder="e.g. Full Checklist Binder" className="mt-1 w-full resize-none rounded-xl border border-[var(--vault-border)] px-3 py-2 text-sm outline-none focus:border-[rgba(200,155,60,0.4)]" />
+          </div>
+        </div>
+        {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+        <div className="mt-4 flex gap-2">
+          <button onClick={handleSave} disabled={saving} className="btn-gold flex-1 rounded-xl py-2 text-sm font-bold disabled:opacity-50">
+            {saving ? "Saving..." : "Save Changes"}
           </button>
           <button onClick={onClose} className="rounded-xl border border-[var(--vault-border)] px-4 py-2 text-sm text-[rgba(28,25,23,0.6)]">Cancel</button>
         </div>
@@ -412,16 +470,17 @@ function UserBinderView({ binder, onBack, isOwner }: { binder: UserBinder; onBac
   );
 }
 
-function BinderCard({ binder, onClick, onDelete, isOwner }: {
+function BinderCard({ binder, onClick, onDelete, onEdit, isOwner }: {
   binder: UserBinder;
   onClick: () => void;
   onDelete?: () => void;
+  onEdit?: () => void;
   isOwner: boolean;
 }) {
   return (
     <button
       onClick={onClick}
-      className="group relative overflow-hidden rounded-2xl text-left transition-all duration-300 hover:-translate-y-1"
+      className="group relative flex w-full flex-col overflow-hidden rounded-2xl text-left transition-all duration-300 hover:-translate-y-1"
       style={{ background: "linear-gradient(145deg, #1a0e06 0%, #2d1a0a 30%, #3d2410 60%, #2d1a0a 100%)", border: "1px solid rgba(200,155,60,0.15)" }}
     >
       {binder.cover_image_url && (
@@ -429,21 +488,35 @@ function BinderCard({ binder, onClick, onDelete, isOwner }: {
           <img src={binder.cover_image_url} alt="" className="h-full w-full object-cover" />
         </div>
       )}
-      <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-400 group-hover:opacity-100" style={{ boxShadow: "inset 0 0 0 1px rgba(200,155,60,0.4)" }} />
-      <div className="relative z-10 p-5">
-        <h3 className="text-lg font-black text-white group-hover:text-[var(--gold-300)] transition-colors">{binder.name}</h3>
-        <p className="mt-1 text-[12px] text-[rgba(255,255,255,0.5)]">{binder.set_name} · {binder.year}</p>
+      <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100" style={{ boxShadow: "inset 0 0 0 1px rgba(200,155,60,0.4)" }} />
+      <div className="relative z-10 flex flex-1 flex-col p-5">
+        <h3 className="text-lg font-black text-white transition-colors group-hover:text-[var(--gold-300)]">{binder.name}</h3>
+        <p className="mt-1 text-[12px] text-[rgba(255,255,255,0.5)]">{binder.set_name}{binder.year ? ` · ${binder.year}` : ""}</p>
+        {binder.description && <p className="mt-1 text-[12px] text-[rgba(255,255,255,0.35)]">{binder.description}</p>}
         {binder.username && <p className="mt-0.5 text-[11px] text-[rgba(255,255,255,0.3)]">by {binder.username}</p>}
-        <div className="mt-4 flex items-center justify-between">
+        <div className="mt-4 flex items-center justify-between gap-2">
           <span className="text-[12px] font-bold text-[var(--gold-500)]">Open →</span>
-          {isOwner && onDelete && (
-            <span
-              role="button"
-              onClick={(e) => { e.stopPropagation(); onDelete(); }}
-              className="rounded-full bg-red-900/40 px-2 py-0.5 text-[10px] text-red-300 hover:bg-red-900/70"
-            >
-              Delete
-            </span>
+          {isOwner && (
+            <div className="flex items-center gap-1.5">
+              {onEdit && (
+                <span
+                  role="button"
+                  onClick={(e) => { e.stopPropagation(); onEdit(); }}
+                  className="rounded-full bg-[rgba(200,155,60,0.15)] px-2 py-0.5 text-[10px] font-semibold text-[#c89b3c] hover:bg-[rgba(200,155,60,0.3)] transition-colors"
+                >
+                  Edit
+                </span>
+              )}
+              {onDelete && (
+                <span
+                  role="button"
+                  onClick={(e) => { e.stopPropagation(); onDelete(); }}
+                  className="rounded-full bg-red-900/40 px-2 py-0.5 text-[10px] text-red-300 hover:bg-red-900/70 transition-colors"
+                >
+                  Delete
+                </span>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -458,6 +531,7 @@ export function UserBindersView() {
   const [communityBinders, setCommunityBinders] = useState<UserBinder[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  const [editBinder, setEditBinder] = useState<UserBinder | null>(null);
   const [activeBinder, setActiveBinder] = useState<UserBinder | null>(null);
 
   useEffect(() => { load(); }, [user]);
@@ -549,6 +623,7 @@ export function UserBindersView() {
                       key={b.id}
                       binder={b}
                       onClick={() => setActiveBinder(b)}
+                      onEdit={() => setEditBinder(b)}
                       onDelete={() => deleteBinder(b.id)}
                       isOwner={true}
                     />
@@ -585,6 +660,16 @@ export function UserBindersView() {
         <CreateBinderModal
           onClose={() => setShowCreate(false)}
           onCreated={load}
+        />
+      )}
+      {editBinder && (
+        <EditBinderModal
+          binder={editBinder}
+          onClose={() => setEditBinder(null)}
+          onSaved={(updated) => {
+            setMyBinders((prev) => prev.map((b) => b.id === updated.id ? updated : b));
+            setEditBinder(null);
+          }}
         />
       )}
     </div>

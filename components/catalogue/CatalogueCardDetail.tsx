@@ -262,14 +262,14 @@ export function CatalogueCardDetail({ card, relatedCards = [], variants = [] }: 
         {relatedCards.length === 0 ? (
           <div className="mt-5 rounded-2xl border border-slate-300/60 bg-white/80 p-5 text-sm text-zinc-600">No other published cards from this set yet.</div>
         ) : (
-          <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="mt-5 grid gap-4 sm:grid-cols-4 xl:grid-cols-6">
             {relatedCards.map((item) => (
-              <Link key={item.id} href={`/catalogue/${item.setSlug}/${item.cardSlug}`} className="group rounded-2xl border border-slate-300/60 bg-white/88 p-3 transition hover:border-amber-300/50 hover:bg-white card-lift">
-                <div className="h-56 overflow-hidden rounded-xl border border-slate-200/70 bg-gradient-to-br from-slate-100 to-zinc-100">
-                  {item.imageUrl ? <img src={item.imageUrl} alt={`${item.playerName} card`} className="h-full w-full object-cover transition group-hover:scale-105" /> : <div className="flex h-full items-center justify-center text-xs uppercase tracking-[0.2em] text-zinc-500">Placeholder</div>}
+              <Link key={item.id} href={`/catalogue/${item.setSlug}/${item.cardSlug}`} className="group rounded-2xl border border-slate-300/60 bg-white/88 p-2 transition hover:border-amber-300/50 hover:bg-white card-lift">
+                <div className="aspect-[2/3] overflow-hidden rounded-xl border border-slate-200/70 bg-gradient-to-br from-slate-100 to-zinc-100">
+                  {item.imageUrl ? <img src={item.imageUrl} alt={`${item.playerName} card`} className="h-full w-full object-contain transition group-hover:scale-105" /> : <div className="flex h-full items-center justify-center text-xs uppercase tracking-[0.2em] text-zinc-500">Placeholder</div>}
                 </div>
-                <p className="mt-3 text-sm font-semibold text-zinc-900">{item.playerName}</p>
-                <div className="mt-1 flex items-center justify-between text-xs text-zinc-600">
+                <p className="mt-2 text-xs font-semibold text-zinc-900 truncate">{item.playerName}</p>
+                <div className="mt-0.5 flex items-center justify-between text-[11px] text-zinc-600">
                   <span>#{item.cardNumber}</span>
                   <span className="font-semibold text-amber-700">{formatGBP(Number(item.price ?? 0))}</span>
                 </div>

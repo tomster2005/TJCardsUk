@@ -22,7 +22,6 @@ export default function SetsPage() {
     const { data } = await supabase
       .from("cards")
       .select("set_name, category")
-      .eq("status", "published")
       .order("set_name");
 
     if (!data) { setLoading(false); return; }
