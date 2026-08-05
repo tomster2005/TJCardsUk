@@ -1,7 +1,7 @@
 import { Resend } from "resend";
 import { formatGBP } from "@/lib/currency";
 
-const FROM = "Collectra <onboarding@resend.dev>";
+const FROM = "Collectra <orders@collectrauk.co.uk>";
 const ADMIN_EMAIL = "tjvaluetips@gmail.com";
 
 type OrderItem = { playerName: string; quantity: number; price?: number };
@@ -98,11 +98,11 @@ export async function sendOrderConfirmation(
     </div>
   `;
 
-  // Resend free tier: can only send to account owner email until domain is verified
+  // Send to the actual customer now that domain is verified
   return resend.emails.send({
     from: FROM,
-    to: ADMIN_EMAIL,
-    subject: `[Customer copy] Order confirmed for ${shipping.email ?? "unknown"} ✓`,
+    to: shipping.email ?? ADMIN_EMAIL,
+    subject: `Your Collectra order is confirmed ✓`,
     html: baseTemplate(content),
   });
 }

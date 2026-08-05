@@ -18,13 +18,13 @@ export function CatalogueGrid() {
   const [cards, setCards] = useState<CatalogueCard[]>([]);
 
   // Initialise filters directly from sessionStorage to avoid restore/save race
-  const [query, setQuery] = useState(() => { try { return JSON.parse(sessionStorage.getItem("catalogue_filters") ?? "{}").query ?? ""; } catch { return ""; } });
-  const [setFilter, setSetFilter] = useState(() => { try { return JSON.parse(sessionStorage.getItem("catalogue_filters") ?? "{}").setFilter ?? "all"; } catch { return "all"; } });
-  const [teamFilter, setTeamFilter] = useState(() => { try { return JSON.parse(sessionStorage.getItem("catalogue_filters") ?? "{}").teamFilter ?? "all"; } catch { return "all"; } });
-  const [parallelFilter, setParallelFilter] = useState(() => { try { return JSON.parse(sessionStorage.getItem("catalogue_filters") ?? "{}").parallelFilter ?? "all"; } catch { return "all"; } });
+  const [query, setQuery] = useState(() => { try { const f = JSON.parse(sessionStorage.getItem("catalogue_filters") ?? "{}"); return f.query ?? ""; } catch { return ""; } });
+  const [setFilter, setSetFilter] = useState(() => { try { const f = JSON.parse(sessionStorage.getItem("catalogue_filters") ?? "{}"); return f.setFilter ?? "all"; } catch { return "all"; } });
+  const [teamFilter, setTeamFilter] = useState(() => { try { const f = JSON.parse(sessionStorage.getItem("catalogue_filters") ?? "{}"); return f.teamFilter ?? "all"; } catch { return "all"; } });
+  const [parallelFilter, setParallelFilter] = useState(() => { try { const f = JSON.parse(sessionStorage.getItem("catalogue_filters") ?? "{}"); return f.parallelFilter ?? "all"; } catch { return "all"; } });
   const [inStockOnly, setInStockOnly] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState("all");
-  const [sortBy, setSortBy] = useState<SortOption>(() => { try { return JSON.parse(sessionStorage.getItem("catalogue_filters") ?? "{}").sortBy ?? "cardNumber"; } catch { return "cardNumber"; } });
+  const [sortBy, setSortBy] = useState<SortOption>(() => { try { const f = JSON.parse(sessionStorage.getItem("catalogue_filters") ?? "{}"); return f.sortBy ?? "cardNumber"; } catch { return "cardNumber"; } });
   const [showFilters, setShowFilters] = useState(false);
   const [filtersRestored, setFiltersRestored] = useState(false);
   const [isLoading, setIsLoading] = useState(true);

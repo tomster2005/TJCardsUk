@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Ratelimit } from "@upstash/ratelimit";
+import { Redis } from "@upstash/redis";
 import { createServiceSupabase } from "@/lib/supabase/server";
 import { sendOrderConfirmation, sendAdminOrderAlert } from "@/lib/email";
+
+const ratelimit = new Ratelimit({
+  redis: Redis.fromEnv(),
+  limiter: Ratelimit.slidingWindow(5, "1 m"),
+  prefix: "rl:finalize",
+});
 
 type CartItem = {
   cardId: string;
@@ -27,6 +35,12 @@ type ShippingDetails = {
 };
 
 export async function POST(request: NextRequest) {
+  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "anonymous";
+  const { success } = await ratelimit.limit(ip);
+  if (!success) {
+    return NextResponse.json({ error: "Too many requests. Please try again shortly." }, { status: 429 });
+  }
+
   const token = process.env.SUMUP_API_KEY?.trim();
   if (!token) {
     return NextResponse.json({ error: "Missing SUMUP_API_KEY." }, { status: 500 });

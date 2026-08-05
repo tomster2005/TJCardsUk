@@ -444,10 +444,10 @@ export function BinderView() {
         .range(0, 9999),
       supabase
         .from("community_images")
-        .select("checklist_id, image_url, username, binder_checklist!inner(set_id, parallel)")
+        .select("checklist_id, image_url, username, parallel, binder_checklist!inner(set_id)")
         .eq("status", "approved")
         .eq("binder_checklist.set_id", activeSetId)
-                .range(0, 9999),
+        .range(0, 9999),
       user
         ? supabase
             .from("personal_card_images")
@@ -489,13 +489,12 @@ export function BinderView() {
 
     if (communityData) {
       for (const ci of communityData) {
-        const sp = (ci.binder_checklist as any)?.parallel;
-        const isBase2 = !sp || sp.trim() === "";
+        const isBase = !ci.parallel || ci.parallel.trim() === "";
         if (ci.username === "Admin") {
-          // Only set if base slot, or no entry yet
-          if (isBase2 || !adminImageLookup.has(ci.checklist_id)) adminImageLookup.set(ci.checklist_id, ci.image_url);
+          // Prefer base (null parallel) image; only overwrite with parallel if no base exists yet
+          if (isBase || !adminImageLookup.has(ci.checklist_id)) adminImageLookup.set(ci.checklist_id, ci.image_url);
         } else {
-          if (isBase2 || !communityLookup.has(ci.checklist_id)) communityLookup.set(ci.checklist_id, { image_url: ci.image_url, username: ci.username || "Anonymous" });
+          if (isBase || !communityLookup.has(ci.checklist_id)) communityLookup.set(ci.checklist_id, { image_url: ci.image_url, username: ci.username || "Anonymous" });
         }
       }
     }

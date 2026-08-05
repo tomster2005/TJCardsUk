@@ -337,6 +337,7 @@ export default function ProcessBatchPage() {
       setOcrRawText(bestLine);
 
       // Fuzzy match against checklist
+      const ocrCleaned = bestLine.replace(/[^a-zA-Z\s'-]/g, "").trim();
       if (checklist.length > 0 && bestLine) {
         const match = fuzzyMatch(bestLine, checklist);
         if (match) {
@@ -344,14 +345,11 @@ export default function ProcessBatchPage() {
           setCardNumber(match.card_number);
           setMatchConfidence("Matched from checklist");
         } else {
-          // No good match, just use OCR text cleaned up
-          const cleaned = bestLine.replace(/[^a-zA-Z\s'-]/g, "").trim();
-          if (cleaned && !title) setTitle(cleaned);
+          if (ocrCleaned && !title) setTitle(ocrCleaned);
           setMatchConfidence("No checklist match - using OCR");
         }
       } else if (bestLine) {
-        const cleaned = bestLine.replace(/[^a-zA-Z\s'-]/g, "").trim();
-        if (cleaned && !title) setTitle(cleaned);
+        if (ocrCleaned && !title) setTitle(ocrCleaned);
         setMatchConfidence("No checklist loaded");
       }
     } catch (e) {

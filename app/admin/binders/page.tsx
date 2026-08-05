@@ -165,7 +165,7 @@ export default function AdminBindersPage() {
     }
   }
 
-  async function handleEdit(s: BinderSet) {
+  function handleEdit(s: BinderSet) {
     setEditingSet(s);
     setEditTitle(s.title);
     setEditDesc(s.description ?? "");

@@ -1,4 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Ratelimit } from "@upstash/ratelimit";
+import { Redis } from "@upstash/redis";
+
+const ratelimit = new Ratelimit({
+  redis: Redis.fromEnv(),
+  limiter: Ratelimit.slidingWindow(10, "1 m"),
+  prefix: "rl:checkout",
+});
 
 type CreateCheckoutBody = {
   amount: number;
@@ -23,6 +31,12 @@ function getBaseUrl(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "anonymous";
+  const { success } = await ratelimit.limit(ip);
+  if (!success) {
+    return NextResponse.json({ error: "Too many requests. Please try again shortly." }, { status: 429 });
+  }
+
   const token = process.env.SUMUP_API_KEY?.trim();
   const merchantCode = process.env.SUMUP_MERCHANT_CODE?.trim();
   const payToEmail = process.env.SUMUP_PAY_TO_EMAIL?.trim();
