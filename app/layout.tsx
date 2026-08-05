@@ -4,6 +4,7 @@ import { Playfair_Display } from "next/font/google";
 import { CollectionProvider } from "@/contexts/CollectionContext";
 import { CartProvider } from "@/contexts/CartContext";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -49,6 +50,7 @@ export default function RootLayout({
             <CollectionProvider>{children}</CollectionProvider>
           </CartProvider>
         </AuthProvider>
+        <Analytics />
       </body>
     </html>
   );
