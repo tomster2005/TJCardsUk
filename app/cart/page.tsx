@@ -362,8 +362,6 @@ export default function CartPage() {
                   )}
                   {discountError && <p className="mt-1.5 text-[11px] text-rose-600">{discountError}</p>}
                 </div>
-                  {isStartingCheckout ? "Opening SumUp..." : "Checkout"}
-                </button>
 
                 {checkoutError && (
                   <p className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-[12px] text-rose-700 border border-rose-200">{checkoutError}</p>
