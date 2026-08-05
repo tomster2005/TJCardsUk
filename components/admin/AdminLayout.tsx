@@ -39,6 +39,7 @@ const adminNavGroups = [
     items: [
       { href: "/admin/users", label: "Users" },
       { href: "/admin/reports", label: "Reports" },
+      { href: "/admin/discount-codes", label: "Discount Codes" },
       { href: "/admin/settings", label: "Settings" },
     ],
   },

@@ -64,6 +64,10 @@ export default function CartPage() {
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [shipping, setShipping] = useState<ShippingDetails>(EMPTY_SHIPPING);
   const [selectedRateId, setSelectedRateId] = useState<string | null>(null);
+  const [discountCode, setDiscountCode] = useState("");
+  const [appliedCode, setAppliedCode] = useState<{ code: string; type: string } | null>(null);
+  const [discountError, setDiscountError] = useState<string | null>(null);
+  const [applyingCode, setApplyingCode] = useState(false);
 
   const {
     items, itemCount, subtotal, grandTotal,
@@ -87,7 +91,8 @@ export default function CartPage() {
   }, [totalWeightG]);
 
   const selectedRate = shippingOptions.find((r) => r.id === selectedRateId) ?? null;
-  const orderTotal = subtotal + (selectedRate?.price ?? 0);
+  const shippingCost = appliedCode?.type === "free_shipping" ? 0 : (selectedRate?.price ?? 0);
+  const orderTotal = subtotal + shippingCost;
 
   function setField(field: keyof ShippingDetails, value: string) {
     setShipping((prev) => ({ ...prev, [field]: value }));
@@ -101,6 +106,26 @@ export default function CartPage() {
     if (!shipping.postcode.trim()) return "Postcode is required.";
     if (!selectedRateId) return "Please select a shipping option.";
     return null;
+  }
+
+  async function handleApplyCode() {
+    if (!discountCode.trim()) return;
+    setApplyingCode(true);
+    setDiscountError(null);
+    const res = await fetch("/api/discount", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: discountCode.trim() }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setDiscountError(data?.error || "Invalid code.");
+      setAppliedCode(null);
+    } else {
+      setAppliedCode({ code: data.code, type: data.type });
+      setDiscountError(null);
+    }
+    setApplyingCode(false);
   }
 
   async function handleStartSumUpCheckout() {
@@ -133,7 +158,7 @@ export default function CartPage() {
     if (typeof window !== "undefined") {
       window.sessionStorage.setItem("collectra_sumup_checkout_id", String(payload.checkoutId || ""));
       window.sessionStorage.setItem("collectra_sumup_cart", JSON.stringify(items.map((i) => ({ cardId: i.cardId, playerName: i.playerName, quantity: i.quantity }))));
-      window.sessionStorage.setItem("collectra_sumup_shipping", JSON.stringify({ ...shipping, shippingRate: selectedRate }));
+      window.sessionStorage.setItem("collectra_sumup_shipping", JSON.stringify({ ...shipping, shippingRate: selectedRate, discountCode: appliedCode?.code ?? null, freeShipping: appliedCode?.type === "free_shipping" }));
       // Redirect to SumUp — checkoutId is also in the return URL so it survives the redirect
       window.location.href = String(payload.checkoutUrl || "/cart");
       return;
@@ -289,7 +314,9 @@ export default function CartPage() {
                   <div className="flex items-center justify-between">
                     <dt>Shipping</dt>
                     <dd className="font-bold text-zinc-900">
-                      {selectedRate ? formatGBP(selectedRate.price) : <span className="text-[12px] text-zinc-400">Select option</span>}
+                      {appliedCode?.type === "free_shipping" ? (
+                        <span className="text-emerald-600">Free 🎉</span>
+                      ) : selectedRate ? formatGBP(selectedRate.price) : <span className="text-[12px] text-zinc-400">Select option</span>}
                     </dd>
                   </div>
                   <div className="border-t" style={{ borderColor: "rgba(200,155,60,0.15)" }} />
@@ -305,6 +332,36 @@ export default function CartPage() {
                   disabled={isStartingCheckout || !selectedRateId}
                   className="btn-gold mt-5 w-full rounded-full py-3 text-[13px] font-bold disabled:opacity-50"
                 >
+                  {isStartingCheckout ? "Opening SumUp..." : "Checkout"}
+                </button>
+
+                {/* Discount code */}
+                <div className="mt-4">
+                  {appliedCode ? (
+                    <div className="flex items-center justify-between rounded-xl bg-emerald-50 border border-emerald-200 px-3 py-2">
+                      <span className="text-[12px] font-semibold text-emerald-700">🎉 {appliedCode.code} applied</span>
+                      <button onClick={() => { setAppliedCode(null); setDiscountCode(""); }} className="text-[11px] text-emerald-500 hover:text-emerald-700">Remove</button>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <input
+                        value={discountCode}
+                        onChange={e => setDiscountCode(e.target.value.toUpperCase())}
+                        onKeyDown={e => e.key === "Enter" && handleApplyCode()}
+                        placeholder="Discount code"
+                        className="flex-1 rounded-xl border border-[rgba(0,0,0,0.1)] bg-white px-3 py-2 text-[12px] text-zinc-800 outline-none focus:border-[rgba(200,155,60,0.4)]"
+                      />
+                      <button
+                        onClick={handleApplyCode}
+                        disabled={applyingCode || !discountCode.trim()}
+                        className="rounded-xl border border-[rgba(0,0,0,0.1)] bg-white px-3 py-2 text-[12px] font-semibold text-zinc-700 hover:bg-slate-50 disabled:opacity-50"
+                      >
+                        {applyingCode ? "..." : "Apply"}
+                      </button>
+                    </div>
+                  )}
+                  {discountError && <p className="mt-1.5 text-[11px] text-rose-600">{discountError}</p>}
+                </div>
                   {isStartingCheckout ? "Opening SumUp..." : "Checkout"}
                 </button>
 
