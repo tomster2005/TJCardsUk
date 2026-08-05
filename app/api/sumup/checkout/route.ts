@@ -66,6 +66,10 @@ export async function POST(request: NextRequest) {
   const checkoutReference = `collectra-${Date.now()}`;
   const sumupBase = (process.env.SUMUP_API_BASE?.trim() || "https://api.sumup.com").replace(/\/$/, "");
 
+  // We don't know the checkoutId yet — SumUp returns it in the response.
+  // We'll use a placeholder and swap it after we get the response.
+  const successBase = `${baseUrl}/checkout/success`;
+
   const payload = {
     checkout_reference: checkoutReference,
     amount: Number(amount.toFixed(2)),
@@ -73,10 +77,9 @@ export async function POST(request: NextRequest) {
     merchant_code: merchantCode,
     pay_to_email: payToEmail,
     description: body.description || "Collectra card order",
-    // `hosted_checkout.enabled` is required for SumUp to return a hosted checkout URL.
     hosted_checkout: { enabled: true },
-    redirect_url: `${baseUrl}/checkout/success`,
-    return_url: `${baseUrl}/checkout/success`,
+    redirect_url: successBase,
+    return_url: successBase,
   };
 
   const response = await fetch(`${sumupBase}/v0.1/checkouts`, {
@@ -104,6 +107,9 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({
     checkoutId: data.id,
     checkoutReference,
-    checkoutUrl: data.hosted_checkout_url,
+    checkoutUrl: data.hosted_checkout_url
+      ? `${data.hosted_checkout_url}`
+      : null,
+    successUrl: `${successBase}?checkoutId=${encodeURIComponent(data.id)}`,
   });
 }

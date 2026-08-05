@@ -134,6 +134,7 @@ export default function CartPage() {
       window.sessionStorage.setItem("collectra_sumup_checkout_id", String(payload.checkoutId || ""));
       window.sessionStorage.setItem("collectra_sumup_cart", JSON.stringify(items.map((i) => ({ cardId: i.cardId, playerName: i.playerName, quantity: i.quantity }))));
       window.sessionStorage.setItem("collectra_sumup_shipping", JSON.stringify({ ...shipping, shippingRate: selectedRate }));
+      // Redirect to SumUp — checkoutId is also in the return URL so it survives the redirect
       window.location.href = String(payload.checkoutUrl || "/cart");
       return;
     }
