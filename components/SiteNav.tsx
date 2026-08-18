@@ -11,6 +11,12 @@ export function SiteNav() {
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  // Close both menus whenever the route changes
+  useEffect(() => {
+    setMenuOpen(false);
+    setMobileOpen(false);
+  }, [pathname]);
   const [cartBadgeAnimated, setCartBadgeAnimated] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -123,9 +129,9 @@ export function SiteNav() {
               }`}
             >
               <span className="flex flex-col gap-[3.5px]">
-                <span className={`block h-[1.5px] w-3.5 rounded-full bg-current transition-all duration-200 ${menuOpen ? "translate-y-[2.5px] rotate-45" : ""}`} />
+                <span className={`block h-[1.5px] w-3.5 rounded-full bg-current transition-all duration-200 ${menuOpen ? "translate-y-[5px] rotate-45" : ""}`} />
                 <span className={`block h-[1.5px] w-3.5 rounded-full bg-current transition-all duration-200 ${menuOpen ? "opacity-0 scale-x-0" : ""}`} />
-                <span className={`block h-[1.5px] w-3.5 rounded-full bg-current transition-all duration-200 ${menuOpen ? "-translate-y-[2.5px] -rotate-45" : ""}`} />
+                <span className={`block h-[1.5px] w-3.5 rounded-full bg-current transition-all duration-200 ${menuOpen ? "-translate-y-[5px] -rotate-45" : ""}`} />
               </span>
               Menu
             </button>
@@ -173,20 +179,36 @@ export function SiteNav() {
           </div>
         </nav>
 
-        {/* ── Mobile Toggle ─────────────────────────────────────────────── */}
-        <button
-          type="button"
-          onClick={() => setMobileOpen((v) => !v)}
-          aria-expanded={mobileOpen}
-          aria-label="Toggle navigation"
-          className="relative z-50 inline-flex items-center gap-2 rounded-full border border-[rgba(0,0,0,0.1)] bg-white px-3 py-2 text-sm font-medium text-zinc-600 md:hidden active:scale-95 touch-manipulation"
-        >
-          <span className="flex flex-col gap-[3.5px]">
-            <span className={`block h-[1.5px] w-3.5 rounded-full bg-current transition-all duration-200 ${mobileOpen ? "translate-y-[2.5px] rotate-45" : ""}`} />
-            <span className={`block h-[1.5px] w-3.5 rounded-full bg-current transition-all duration-200 ${mobileOpen ? "opacity-0" : ""}`} />
-            <span className={`block h-[1.5px] w-3.5 rounded-full bg-current transition-all duration-200 ${mobileOpen ? "-translate-y-[2.5px] -rotate-45" : ""}`} />
-          </span>
-        </button>
+        {/* ── Mobile: Cart + Toggle ─────────────────────────────────────── */}
+        <div className="flex items-center gap-2 md:hidden">
+          <button
+            type="button"
+            data-cart-icon
+            onClick={openCart}
+            aria-label="Open cart"
+            className="relative inline-flex items-center justify-center rounded-full border border-[rgba(0,0,0,0.1)] bg-white p-2 text-zinc-600 active:scale-95 touch-manipulation"
+          >
+            <CartIcon className="h-4 w-4" />
+            {itemCount > 0 && (
+              <span className={`absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-gradient-to-br from-[#f5d97a] to-[#c89b3c] px-1 text-[9px] font-black text-[#0d0d0f] shadow-[0_2px_8px_rgba(200,155,60,0.5)] ${cartBadgeAnimated ? "animate-cart-bump" : ""}`}>
+                {itemCount}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => setMobileOpen((v) => !v)}
+            aria-expanded={mobileOpen}
+            aria-label="Toggle navigation"
+            className="relative z-50 inline-flex items-center gap-2 rounded-full border border-[rgba(0,0,0,0.1)] bg-white px-3 py-2 text-sm font-medium text-zinc-600 active:scale-95 touch-manipulation"
+          >
+            <span className="flex flex-col gap-[3.5px]">
+            <span className={`block h-[1.5px] w-3.5 rounded-full bg-current transition-all duration-200 ${mobileOpen ? "translate-y-[5px] rotate-45" : ""}`} />
+              <span className={`block h-[1.5px] w-3.5 rounded-full bg-current transition-all duration-200 ${mobileOpen ? "opacity-0" : ""}`} />
+              <span className={`block h-[1.5px] w-3.5 rounded-full bg-current transition-all duration-200 ${mobileOpen ? "-translate-y-[5px] -rotate-45" : ""}`} />
+            </span>
+          </button>
+        </div>
       </div>
 
       {/* ── Mobile Menu ───────────────────────────────────────────────── */}
@@ -198,10 +220,6 @@ export function SiteNav() {
                 {item.icon}{item.label}
               </Link>
             ))}
-            <button type="button" onClick={() => { setMobileOpen(false); openCart(); }} className={linkClass(false)}>
-              <CartIcon className="h-3.5 w-3.5" />Cart
-              {itemCount > 0 && <span className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full bg-[#c89b3c] text-[10px] font-bold text-[#0d0d0f]">{itemCount}</span>}
-            </button>
             <div className="my-2 h-px bg-[rgba(0,0,0,0.06)]" />
             {secondaryNav.map((item) => (
               <Link key={item.href} href={item.href} className={linkClass(isActive(item.href))} onClick={() => setMobileOpen(false)}>

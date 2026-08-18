@@ -23,9 +23,10 @@ type CardRow = {
   owner?: string | null;
   copyOwners?: string;
   stockBreakdown?: string | null;
+  storage_location?: string | null;
 };
 
-type BulkAction = "publish" | "unpublish" | "set_name" | "price" | "stock" | "owner" | "category" | "delete" | null;
+type BulkAction = "publish" | "unpublish" | "set_name" | "price" | "stock" | "owner" | "category" | "location" | "delete" | null;
 
 export default function CardsPage() {
   const { user, loading } = useAuth();
@@ -70,38 +71,59 @@ export default function CardsPage() {
 
       // Build owner summary per card from unsold copies
       const copyMap = new Map<string, string[]>();
-      const stockBreakdown = new Map<string, string>();
       for (const copy of (copies ?? [])) {
         const existing = copyMap.get(copy.card_id) ?? [];
         if (!existing.includes(copy.owner)) existing.push(copy.owner);
         copyMap.set(copy.card_id, existing);
       }
 
-      // Build stock breakdown per card e.g. "3 Tom · 1 Joint"
-      const stockMap = new Map<string, Record<string, number>>();
-      for (const copy of (copies ?? [])) {
-        const owners = stockMap.get(copy.card_id) ?? {};
-        owners[copy.owner] = (owners[copy.owner] ?? 0) + 1;
-        stockMap.set(copy.card_id, owners);
+      // Build stock breakdown per group (card_number + set_name + parallel)
+      // First build a map of card_id -> group key
+      const cardGroupKey = new Map<string, string>();
+      for (const c of (data ?? [])) {
+        cardGroupKey.set(c.id, `${c.card_number}||${c.set_name}||${c.parallel ?? ""}`);
       }
-      for (const [cardId, owners] of stockMap.entries()) {
-        const parts = Object.entries(owners).sort().map(([o, n]) => `${n} ${o}`);
-        stockBreakdown.set(cardId, parts.join(' · '));
+      const groupOwnerCounts = new Map<string, Record<string, number>>();
+      for (const copy of (copies ?? [])) {
+        const gk = cardGroupKey.get(copy.card_id);
+        if (!gk) continue;
+        const owners = groupOwnerCounts.get(gk) ?? {};
+        owners[copy.owner] = (owners[copy.owner] ?? 0) + 1;
+        groupOwnerCounts.set(gk, owners);
       }
 
-      const mapped = (data ?? []).map((c: any) => ({
-        ...c,
-        copyOwners: copyMap.get(c.id)?.sort().join("/") ?? null,
-        stockBreakdown: stockBreakdown.get(c.id) ?? null,
-      }));
+      const mapped = (data ?? []).map((c: any) => {
+        const gk = `${c.card_number}||${c.set_name}||${c.parallel ?? ""}`;
+        const owners = groupOwnerCounts.get(gk);
+        const breakdown = owners
+          ? Object.entries(owners).sort().map(([o, n]) => `${n} ${o}`).join(' · ')
+          : null;
+        return { ...c, stockBreakdown: breakdown };
+      });
       setCards(mapped as CardRow[]);
       setIsLoadingCards(false);
     })();
     return () => { mounted = false; };
   }, [loading, user]);
 
+  // Group duplicates (same card_number + set_name + parallel) into single rows
+  const groupedCards = (() => {
+    const map = new Map<string, CardRow & { _ids: string[] }>();
+    for (const c of cards) {
+      const key = `${c.card_number}||${c.set_name}||${c.parallel ?? ""}`;
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, { ...c, _ids: [c.id] });
+      } else {
+        existing._ids.push(c.id);
+        // stock and stockBreakdown are already group-level from the data load
+      }
+    }
+    return Array.from(map.values());
+  })();
+
   // Filtered cards
-  const filteredCards = cards.filter((c) => {
+  const filteredCards = groupedCards.filter((c) => {
     if (filterSet !== "all" && c.set_name !== filterSet) return false;
     if (filterStatus !== "all" && c.status !== filterStatus) return false;
     if (filterParallel !== "all" && (c.parallel || "") !== filterParallel) return false;
@@ -131,8 +153,8 @@ export default function CardsPage() {
     return 0; // newest (default, already ordered by created_at desc from DB)
   });
 
-  const sets = Array.from(new Set(cards.map((c) => c.set_name).filter(Boolean))).sort();
-  const parallels = Array.from(new Set(cards.map((c) => c.parallel).filter(Boolean))).sort();
+  const sets = Array.from(new Set(groupedCards.map((c) => c.set_name).filter(Boolean))).sort();
+  const parallels = Array.from(new Set(groupedCards.map((c) => c.parallel).filter(Boolean))).sort();
   const allSelected = filteredCards.length > 0 && filteredCards.every((c) => selected.has(c.id));
 
   function toggleAll() {
@@ -191,6 +213,10 @@ export default function CardsPage() {
         if (stock <= 0) update.status = "draft";
         await supabase.from("cards").update(update).in("id", ids);
         setCards((cur) => cur.map((c) => selected.has(c.id) ? { ...c, stock, ...(stock <= 0 ? { status: "draft" } : {}) } : c));
+      } else if (bulkAction === "location") {
+        const storage_location = bulkValue.trim() || null;
+        await supabase.from("cards").update({ storage_location }).in("id", ids);
+        setCards((cur) => cur.map((c) => selected.has(c.id) ? { ...c, storage_location } : c));
       }
 
       setSelected(new Set());
@@ -207,9 +233,9 @@ export default function CardsPage() {
     return <div className="rounded-3xl border border-slate-300/60 bg-white/90 p-8 text-zinc-600">Checking auth...</div>;
   }
 
-  const total = cards.length;
-  const drafts = cards.filter((c) => c.status === "draft").length;
-  const published = cards.filter((c) => c.status === "published").length;
+  const total = groupedCards.length;
+  const drafts = groupedCards.filter((c) => c.status === "draft").length;
+  const published = groupedCards.filter((c) => c.status === "published").length;
 
   return (
     <div className="space-y-6">
@@ -303,6 +329,7 @@ export default function CardsPage() {
             <option value="stock">Set stock</option>
             <option value="owner">Set owner</option>
             <option value="category">Set category</option>
+            <option value="location">Set bag/location</option>
             <option value="delete">Delete all</option>
           </select>
 
@@ -326,12 +353,12 @@ export default function CardsPage() {
               <option value="Joint">Joint</option>
             </select>
           )}
-          {(bulkAction === "set_name" || bulkAction === "price" || bulkAction === "stock") && (
+          {(bulkAction === "set_name" || bulkAction === "price" || bulkAction === "stock" || bulkAction === "location") && (
             <input
               value={bulkValue}
               onChange={(e) => setBulkValue(e.target.value)}
-              placeholder={bulkAction === "set_name" ? "New set name" : bulkAction === "price" ? "Price (e.g. 2.50)" : "Stock qty"}
-              className="rounded-lg border border-amber-300/50 bg-white px-3 py-1.5 text-sm w-40"
+              placeholder={bulkAction === "set_name" ? "New set name" : bulkAction === "price" ? "Price (e.g. 2.50)" : bulkAction === "location" ? "Bag e.g. 1A (blank to clear)" : "Stock qty"}
+              className="rounded-lg border border-amber-300/50 bg-white px-3 py-1.5 text-sm w-48"
             />
           )}
 
@@ -384,6 +411,7 @@ export default function CardsPage() {
                   <th className="pb-3 pr-3">Price</th>
                   <th className="pb-3 pr-3">Stock</th>
                   <th className="pb-3 pr-3">Owner</th>
+                  <th className="pb-3 pr-3">Location</th>
                   <th className="pb-3 pr-3">Status</th>
                   <th className="pb-3">Actions</th>
                 </tr>
@@ -430,6 +458,13 @@ export default function CardsPage() {
                       )}
                     </td>
                     <td className="py-3 pr-3">
+                      {c.storage_location ? (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800">{c.storage_location}</span>
+                      ) : (
+                        <span className="text-xs text-zinc-300">—</span>
+                      )}
+                    </td>
+                    <td className="py-3 pr-3">
                       <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
                         c.status === "published" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
                       }`}>{c.status || "draft"}</span>
@@ -445,8 +480,9 @@ export default function CardsPage() {
                             if (!confirm("Delete this card?")) return;
                             const supabase = getBrowserSupabase();
                             if (!supabase) return;
-                            await supabase.from("cards").delete().eq("id", c.id);
-                            setCards((cur) => cur.filter((r) => r.id !== c.id));
+                            const ids = (c as any)._ids ?? [c.id];
+                            await supabase.from("cards").delete().in("id", ids);
+                            setCards((cur) => cur.filter((r) => !ids.includes(r.id)));
                           }}
                           className="rounded-lg border border-red-200 px-2.5 py-1 text-xs text-red-600 hover:bg-red-50"
                         >

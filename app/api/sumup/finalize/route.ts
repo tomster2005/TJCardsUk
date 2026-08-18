@@ -100,7 +100,7 @@ export async function POST(request: NextRequest) {
   for (const item of items) {
     const { data: card, error } = await supabase
       .from("cards")
-      .select("id, stock, status, price, player")
+      .select("id, stock, status, price, player, storage_location")
       .eq("id", item.cardId)
       .single();
 
@@ -136,7 +136,7 @@ export async function POST(request: NextRequest) {
 
     // Owner from the first (oldest) copy sold
     const owner = (copies[0] as any).owner ?? null;
-    itemsWithPrices.push({ ...item, price: Number((card as any).price ?? 0), owner, _copyIds: copyIds } as any);
+    itemsWithPrices.push({ ...item, price: Number((card as any).price ?? 0), owner, storage_location: (card as any).storage_location ?? null, _copyIds: copyIds } as any);
 
     // Update stock count and status on the card row
     const nextStock = Math.max(0, Number((card as any).stock ?? 0) - copies.length);

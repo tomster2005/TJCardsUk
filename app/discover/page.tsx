@@ -8,7 +8,6 @@ import Link from "next/link";
 type SetInfo = {
   name: string;
   cardCount: number;
-  inStock: number;
   hasBinder: boolean;
 };
 
@@ -24,7 +23,7 @@ export default function DiscoverPage() {
       // Get all published cards grouped by set
       const { data: cards } = await supabase
         .from("cards")
-        .select("set_name, stock, status")
+        .select("set_name, status")
         .eq("status", "published");
 
       // Get binder sets for matching
@@ -35,13 +34,12 @@ export default function DiscoverPage() {
       const binderTitles = new Set((binderSets || []).map((b) => b.title));
 
       // Group by set
-      const setMap = new Map<string, { count: number; inStock: number }>();
+      const setMap = new Map<string, { count: number }>();
       if (cards) {
         for (const c of cards) {
           const name = c.set_name || "Unknown";
-          const existing = setMap.get(name) || { count: 0, inStock: 0 };
+          const existing = setMap.get(name) || { count: 0 };
           existing.count++;
-          if ((c.stock || 0) > 0) existing.inStock++;
           setMap.set(name, existing);
         }
       }
@@ -50,7 +48,6 @@ export default function DiscoverPage() {
         .map(([name, data]) => ({
           name,
           cardCount: data.count,
-          inStock: data.inStock,
           hasBinder: binderTitles.has(name),
         }))
         .sort((a, b) => b.cardCount - a.cardCount);
@@ -63,32 +60,38 @@ export default function DiscoverPage() {
 
   return (
     <Layout>
-      <div className="space-y-8 animate-fade-up">
+      <div className="space-y-6 animate-fade-up">
 
         {/* Hero */}
-        <section className="relative overflow-hidden rounded-3xl" style={{ minHeight: 240, background: "linear-gradient(135deg, #fef9ec 0%, #f8f6f2 100%)", border: "1px solid rgba(200,155,60,0.15)" }}>
-          <div className="absolute inset-0" style={{ background: "radial-gradient(ellipse 70% 60% at 30% -20%, rgba(200,155,60,0.1), transparent)" }} />
-          <div className="relative p-8 sm:p-12">
-            <span className="text-[11px] font-bold uppercase tracking-[0.3em] text-[var(--gold-500)]">Discover</span>
-            <h1 className="mt-2 text-3xl font-black text-zinc-900 font-display sm:text-4xl">
-              Explore our sets
-            </h1>
-            <p className="mt-1 text-[14px] text-zinc-500">
-              {loading ? "Loading..." : `${sets.length} set${sets.length !== 1 ? "s" : ""} available.`}
-            </p>
+        <section className="relative overflow-hidden rounded-2xl" style={{ background: "linear-gradient(135deg, #fef9ec 0%, #f8f6f2 100%)", border: "1px solid rgba(200,155,60,0.15)" }}>
+          <div className="absolute inset-0" style={{ background: "radial-gradient(ellipse 70% 120% at 80% 50%, rgba(200,155,60,0.07), transparent)" }} />
+          <div className="relative flex items-center justify-between gap-6 px-8 py-6 sm:px-10">
+            <div>
+              <span className="text-[11px] font-bold uppercase tracking-[0.3em] text-[var(--gold-500)]">Discover</span>
+              <h1 className="mt-1 text-2xl font-black text-zinc-900 font-display sm:text-3xl">Explore our sets</h1>
+              <p className="mt-1 text-[13px] text-zinc-500">
+                {loading ? "Loading..." : `${sets.length} set${sets.length !== 1 ? "s" : ""} available`}
+              </p>
+            </div>
+            {!loading && sets.length > 0 && (
+              <div className="hidden sm:flex flex-col items-end gap-0.5">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-zinc-400">Total cards</p>
+                <p className="text-3xl font-black text-zinc-900">{sets.reduce((a, s) => a + s.cardCount, 0)}</p>
+              </div>
+            )}
           </div>
         </section>
 
         {loading && (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="skeleton h-40 rounded-2xl" />
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="skeleton h-44 rounded-2xl" />
             ))}
           </div>
         )}
 
         {!loading && sets.length === 0 && (
-          <div className="rounded-3xl p-16 text-center bg-white" style={{ border: "1px solid rgba(0,0,0,0.08)" }}>
+          <div className="rounded-2xl p-16 text-center bg-white" style={{ border: "1px solid rgba(0,0,0,0.08)" }}>
             <p className="text-lg font-bold text-zinc-700">No sets yet</p>
             <p className="mt-2 text-sm text-zinc-500">Cards will appear here once published.</p>
           </div>
@@ -97,50 +100,38 @@ export default function DiscoverPage() {
         {!loading && sets.length > 0 && (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {sets.map((set) => (
-              <article key={set.name} className="card-lift overflow-hidden rounded-2xl bg-white" style={{ border: "1px solid rgba(0,0,0,0.08)" }}>
-                <div className="h-1.5 w-full" style={{ background: "linear-gradient(90deg, var(--gold-400), var(--gold-300), var(--gold-400))" }} />
-                <div className="p-5">
+              <article key={set.name} className="card-lift overflow-hidden rounded-2xl bg-white flex flex-col" style={{ border: "1px solid rgba(0,0,0,0.08)" }}>
+                <div className="h-1 w-full" style={{ background: "linear-gradient(90deg, var(--gold-400), var(--gold-300), var(--gold-400))" }} />
+                <div className="flex flex-col gap-4 p-5 flex-1">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <h3 className="text-base font-black text-zinc-900">{set.name}</h3>
-                      <p className="mt-0.5 text-[12px] text-zinc-500">{set.cardCount} cards listed</p>
+                      <h3 className="text-[15px] font-black text-zinc-900 leading-tight">{set.name}</h3>
+                      <p className="mt-0.5 text-[12px] text-zinc-400">{set.cardCount} cards listed</p>
                     </div>
                     {set.hasBinder && (
-                      <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-bold text-emerald-700 border border-emerald-200">
+                      <span className="shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide" style={{ background: "rgba(200,155,60,0.1)", color: "var(--gold-600)", border: "1px solid rgba(200,155,60,0.25)" }}>
                         Binder
                       </span>
                     )}
                   </div>
-
-                  <div className="mt-4 flex items-center justify-between">
-                    <div className="flex gap-3">
-                      <div>
-                        <p className="text-[9px] font-bold uppercase tracking-wider text-zinc-400">In Stock</p>
-                        <p className="text-lg font-black text-zinc-900">{set.inStock}</p>
-                      </div>
-                      <div>
-                        <p className="text-[9px] font-bold uppercase tracking-wider text-zinc-400">Total</p>
-                        <p className="text-lg font-black text-zinc-900">{set.cardCount}</p>
-                      </div>
-                    </div>
+                  <div className="mt-auto flex flex-col gap-2">
                     <Link
                       href={`/catalogue?set=${encodeURIComponent(set.name)}`}
-                      className="rounded-full px-3 py-1.5 text-[11px] font-bold text-[var(--gold-600)] transition hover:bg-[rgba(200,155,60,0.08)]"
-                      style={{ border: "1px solid rgba(200,155,60,0.25)" }}
+                      className="block w-full rounded-xl py-2 text-center text-[12px] font-bold transition"
+                      style={{ background: "rgba(200,155,60,0.08)", color: "var(--gold-600)", border: "1px solid rgba(200,155,60,0.2)" }}
                     >
                       View cards
                     </Link>
+                    {set.hasBinder && (
+                      <Link
+                        href="/binder"
+                        className="block w-full rounded-xl py-2 text-center text-[12px] font-bold transition"
+                        style={{ background: "linear-gradient(135deg, var(--gold-400), var(--gold-500))", color: "#1a0e00" }}
+                      >
+                        Open binder
+                      </Link>
+                    )}
                   </div>
-
-                  {set.hasBinder && (
-                    <Link
-                      href="/binder"
-                      className="mt-3 block w-full rounded-xl py-2 text-center text-[11px] font-bold text-emerald-700 transition hover:bg-emerald-50"
-                      style={{ border: "1px solid rgba(22,163,74,0.2)" }}
-                    >
-                      Open binder
-                    </Link>
-                  )}
                 </div>
               </article>
             ))}

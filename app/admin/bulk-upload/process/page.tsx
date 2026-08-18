@@ -32,6 +32,14 @@ interface BinderSet {
 
 const STORAGE_KEY = "bulk-upload-progress";
 const FIELDS_KEY = "bulk-upload-fields";
+const BAG_KEY = "bulk-upload-bag";
+const BAG_COUNT_KEY = "bulk-upload-bag-count";
+const BAG_CAPACITY = 30;
+
+function nextBag(current: string): string {
+  const num = parseInt(current.replace(/[^0-9]/g, ""), 10);
+  return isNaN(num) ? current : `${num + 1}AAA`;
+}
 
 function loadProgress(): { batch: string | null; index: number; binderId: string | null; owner: string | null; category: string | null } {
   if (typeof window === "undefined") return { batch: null, index: 0, binderId: null, owner: null, category: null };
@@ -195,6 +203,23 @@ export default function ProcessBatchPage() {
   const [category, setCategory] = useState<string | null>(null);
   const [binderSlots, setBinderSlots] = useState<ChecklistSlot[]>([]);
   const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null);
+
+  // Bag / storage location
+  const [currentBag, setCurrentBag] = useState<string>(() => {
+    try { return localStorage.getItem(BAG_KEY) ?? ""; } catch { return ""; }
+  });
+  const [bagCount, setBagCount] = useState<number>(() => {
+    try { return parseInt(localStorage.getItem(BAG_COUNT_KEY) ?? "0", 10) || 0; } catch { return 0; }
+  });
+  const [bagOverride, setBagOverride] = useState("");
+  const [showBagPrompt, setShowBagPrompt] = useState(false);
+
+  useEffect(() => {
+    try { localStorage.setItem(BAG_KEY, currentBag); } catch {}
+  }, [currentBag]);
+  useEffect(() => {
+    try { localStorage.setItem(BAG_COUNT_KEY, String(bagCount)); } catch {}
+  }, [bagCount]);
 
   // Restore fields from sessionStorage on mount
   useEffect(() => {
@@ -415,6 +440,23 @@ export default function ProcessBatchPage() {
     })();
   }, [supabase, selectedBatch]);
 
+  function advanceCard() {
+    setTitle("");
+    setCardNumber("");
+    clearUnlocked();
+    setOcrRawText("");
+    setMatchConfidence("");
+    setBinderSlots([]);
+    setSelectedSlotId(null);
+    setBagOverride("");
+    if (currentIndex + 1 < pairs.length) {
+      setCurrentIndex(currentIndex + 1);
+    } else {
+      clearProgress();
+      router.push("/admin/bulk-upload?done=1");
+    }
+  }
+
   const currentPair = pairs[currentIndex] || null;
 
   async function handleSave() {
@@ -450,43 +492,63 @@ export default function ProcessBatchPage() {
         return;
       }
 
-      // Upsert into community_images as approved
-      await supabase.from("community_images").delete().eq("checklist_id", clId);
-      const { error: imgErr } = await supabase
+      // Upsert into community_images as approved — base locks out parallels
+      const isBaseUpload = !parallel.trim();
+      const { data: existingBase } = await supabase
         .from("community_images")
-        .insert({ checklist_id: clId, image_url: currentPair.front, username: "Admin", status: "approved", uploaded_by: null, parallel: null });
-
-      if (imgErr) { setError(imgErr.message); setSaving(false); return; }
+        .select("id")
+        .eq("checklist_id", clId)
+        .is("parallel", null)
+        .eq("status", "approved")
+        .limit(1)
+        .single();
+      if (isBaseUpload) {
+        await supabase.from("community_images").delete().eq("checklist_id", clId);
+        const { error: imgErr } = await supabase
+          .from("community_images")
+          .insert({ checklist_id: clId, image_url: currentPair.front, username: "Admin", status: "approved", uploaded_by: null, parallel: null });
+        if (imgErr) { setError(imgErr.message); setSaving(false); return; }
+      } else if (!existingBase) {
+        await supabase.from("community_images").delete().eq("checklist_id", clId).eq("parallel", parallel.trim());
+        const { error: imgErr } = await supabase
+          .from("community_images")
+          .insert({ checklist_id: clId, image_url: currentPair.front, username: "Admin", status: "approved", uploaded_by: null, parallel: parallel.trim() });
+        if (imgErr) { setError(imgErr.message); setSaving(false); return; }
+      }
 
       setSaving(false);
       setTitle(""); setCardNumber(""); setOcrRawText(""); setMatchConfidence("");
       clearUnlocked();
-      if (currentIndex + 1 < pairs.length) {
-        setCurrentIndex(currentIndex + 1);
+      setBagOverride("");
+      const newCount = bagCount + 1;
+      setBagCount(newCount);
+      if (newCount >= BAG_CAPACITY) {
+        setShowBagPrompt(true);
       } else {
-        clearProgress();
-        router.push("/admin/bulk-upload?done=1");
+        advanceCard();
       }
       return;
     }
 
     // ── Normal mode: create/update cards row ──
 
-    const { data: existing } = await supabase
+    const parallelValue = parallel.trim() || null;
+    let existingQuery = supabase
       .from("cards")
       .select("id, stock, variant_group_id, parallel")
       .eq("title", safeTitle)
       .eq("set_name", safeSet)
-      .eq("card_number", safeCardNum)
-      .eq("parallel", parallel.trim() || "")
-      .limit(1)
-      .single();
+      .eq("card_number", safeCardNum);
+    existingQuery = parallelValue
+      ? existingQuery.eq("parallel", parallelValue)
+      : existingQuery.is("parallel", null);
+    const { data: existing } = await existingQuery.limit(1).single();
 
     if (existing) {
       // Add a new copy row for this owner (FIFO tracking)
       const { error: copyErr } = await supabase
         .from("card_copies")
-        .insert({ card_id: existing.id, owner: owner || "Joint", sold: false });
+        .insert({ card_id: existing.id, owner: owner || "Joint", sold: false, storage_location: bagOverride.trim() || currentBag || null });
       if (copyErr) { setError(copyErr.message); setSaving(false); return; }
       // Increment stock on the card row
       const { error: updateErr } = await supabase
@@ -530,7 +592,7 @@ export default function ProcessBatchPage() {
         team: team.trim() || null,
         brand: brand.trim() || null,
         season: season.trim() || null,
-        parallel: parallel.trim() || null,
+        parallel: parallelValue,
         print_run: printRun.trim() || null,
         variant_group_id: groupId,
         is_base_variant: isBase,
@@ -538,7 +600,7 @@ export default function ProcessBatchPage() {
       if (insertErr) { setError(insertErr.message); setSaving(false); return; }
       // Insert copy rows for each unit of stock
       const qty = Number(stock) || 1;
-      const copyRows = Array.from({ length: qty }, () => ({ card_id: (newCard as any).id, owner: owner || "Joint", sold: false }));
+      const copyRows = Array.from({ length: qty }, () => ({ card_id: (newCard as any).id, owner: owner || "Joint", sold: false, storage_location: bagOverride.trim() || currentBag || null }));
       await supabase.from("card_copies").insert(copyRows);
     }
 
@@ -556,8 +618,26 @@ export default function ProcessBatchPage() {
         targetId = (clRows?.find((r: any) => !r.parallel || r.parallel.trim() === "") ?? clRows?.[0])?.id ?? null;
       }
       if (targetId) {
-        await supabase.from("community_images").delete().eq("checklist_id", targetId).eq("parallel", parallel.trim() || null);
-        await supabase.from("community_images").insert({ checklist_id: targetId, image_url: currentPair.front, username: "Admin", status: "approved", uploaded_by: null, parallel: parallel.trim() || null });
+        const isBaseUpload = !parallel.trim();
+        // Check if a base (no parallel) image already exists for this slot
+        const { data: existingBase } = await supabase
+          .from("community_images")
+          .select("id")
+          .eq("checklist_id", targetId)
+          .is("parallel", null)
+          .eq("status", "approved")
+          .limit(1)
+          .single();
+        if (isBaseUpload) {
+          // Base image: always replace whatever is there (base locks out parallels)
+          await supabase.from("community_images").delete().eq("checklist_id", targetId);
+          await supabase.from("community_images").insert({ checklist_id: targetId, image_url: currentPair.front, username: "Admin", status: "approved", uploaded_by: null, parallel: null });
+        } else if (!existingBase) {
+          // Parallel image: only write if no base image exists yet
+          await supabase.from("community_images").delete().eq("checklist_id", targetId).eq("parallel", parallel.trim());
+          await supabase.from("community_images").insert({ checklist_id: targetId, image_url: currentPair.front, username: "Admin", status: "approved", uploaded_by: null, parallel: parallel.trim() });
+        }
+        // If existingBase exists and this is a parallel upload, skip — base image is locked
       }
     }
 
@@ -569,12 +649,14 @@ export default function ProcessBatchPage() {
     setMatchConfidence("");
     setBinderSlots([]);
     setSelectedSlotId(null);
+    setBagOverride("");
 
-    if (currentIndex + 1 < pairs.length) {
-      setCurrentIndex(currentIndex + 1);
+    const newCount = bagCount + 1;
+    setBagCount(newCount);
+    if (newCount >= BAG_CAPACITY) {
+      setShowBagPrompt(true);
     } else {
-      clearProgress();
-      router.push("/admin/bulk-upload?done=1");
+      advanceCard();
     }
   }
 
@@ -620,6 +702,15 @@ export default function ProcessBatchPage() {
           {selectedBinder && checklist.length > 0 && (
             <p className="mt-2 text-xs text-emerald-600 font-medium">{checklist.length} entries loaded from checklist</p>
           )}
+          <label className="mt-3 block">
+            <span className="text-sm font-medium text-zinc-700">Starting bag (e.g. 1AAA)</span>
+            <input
+              value={currentBag}
+              onChange={e => setCurrentBag(e.target.value)}
+              placeholder="1AAA"
+              className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none"
+            />
+          </label>
           <label className="mt-3 block">
             <span className="text-sm font-medium text-zinc-700">Owner</span>
             <select
@@ -681,12 +772,29 @@ export default function ProcessBatchPage() {
 
   return (
     <div className="space-y-6">
+      {showBagPrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="rounded-3xl bg-white p-8 shadow-xl max-w-sm w-full space-y-4">
+            <h2 className="text-lg font-bold text-zinc-900">Bag {currentBag} is full!</h2>
+            <p className="text-sm text-zinc-600">Seal it and get the next bag ready. Press confirm when ready.</p>
+            <button
+              onClick={() => { setCurrentBag(nextBag(currentBag)); setBagCount(0); setShowBagPrompt(false); advanceCard(); }}
+              className="w-full rounded-full bg-amber-500 px-5 py-3 text-sm font-semibold text-white hover:bg-amber-600"
+            >
+              Confirm — move to {nextBag(currentBag)}
+            </button>
+          </div>
+        </div>
+      )}
       <div className="rounded-3xl border border-slate-300/60 bg-white/92 p-6 shadow-sm flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-zinc-900">Card {currentIndex + 1} of {pairs.length}</h1>
           <p className="text-sm text-zinc-500">Batch: {selectedBatch} {selectedBinder && `| Checklist: ${binderSets.find(b => b.id === selectedBinder)?.title}`} {category && `| ${category}`}</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-3">
+          {currentBag && (
+            <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">📦 {currentBag} ({bagCount}/{BAG_CAPACITY})</span>
+          )}
           <button onClick={() => { if (currentIndex > 0) { setCurrentIndex(currentIndex - 1); setTitle(""); setCardNumber(""); setOcrRawText(""); setMatchConfidence(""); } }} disabled={currentIndex === 0} className="rounded-full border border-slate-300 px-4 py-2 text-sm text-zinc-700 hover:bg-slate-50 disabled:opacity-40">← Back</button>
           <button onClick={handleSkip} className="rounded-full border border-slate-300 px-4 py-2 text-sm text-zinc-700 hover:bg-slate-50">Skip</button>
           <button onClick={() => { setSelectedBatch(null); setPairs([]); clearProgress(); }} className="rounded-full border border-slate-300 px-4 py-2 text-sm text-zinc-700 hover:bg-slate-50">Back</button>
@@ -848,6 +956,12 @@ export default function ProcessBatchPage() {
                   </label>
                 </div>
               </>
+            )}
+            {!binderImageMode && currentBag && (
+              <label className="block">
+                <span className="text-sm text-zinc-700">Bag override <span className="text-xs text-zinc-400">(leave blank to use {currentBag})</span></span>
+                <input value={bagOverride} onChange={e => setBagOverride(e.target.value)} placeholder={currentBag} className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
+              </label>
             )}
             <button type="button" onClick={handleSave} disabled={saving || (binderImageMode ? !cardNumber.trim() : !title.trim())} className="mt-2 w-full rounded-full bg-amber-500 px-5 py-3 text-sm font-semibold text-white shadow hover:bg-amber-600 disabled:opacity-50">
               {saving ? "Saving..." : "Save & Next"}

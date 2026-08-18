@@ -26,7 +26,7 @@ type ShippingOption = {
 const BUBBLE_MAILER_G = 7;
 const TOPLOADER_CARD_G = 8;
 const BARE_CARD_G = 2;
-const TOPLOADER_THRESHOLD = 0.99; // cards above this price get a toploader
+const TOPLOADER_THRESHOLD = 0.99;
 
 const TRACKED_48: ShippingOption = {
   id: "tracked48",
@@ -52,7 +52,7 @@ const EMPTY_SHIPPING: ShippingDetails = {
 };
 
 function inputClass() {
-  return "mt-1.5 w-full rounded-xl border border-[rgba(0,0,0,0.1)] bg-white px-4 py-2.5 text-sm text-zinc-800 outline-none transition focus:border-[rgba(200,155,60,0.5)]";
+  return "mt-1 w-full rounded-xl border border-[rgba(0,0,0,0.1)] bg-white px-3 py-2 text-sm text-zinc-800 outline-none transition focus:border-[rgba(200,155,60,0.5)]";
 }
 
 function labelClass() {
@@ -70,11 +70,10 @@ export default function CartPage() {
   const [applyingCode, setApplyingCode] = useState(false);
 
   const {
-    items, itemCount, subtotal, grandTotal,
+    items, itemCount, subtotal,
     increaseQuantity, decreaseQuantity, removeFromCart, clearCart,
   } = useCart();
 
-  // Calculate total package weight based on card prices
   const totalWeightG = useMemo(() => {
     const cardsWeight = items.reduce((sum, item) => {
       const perCard = item.price > TOPLOADER_THRESHOLD ? TOPLOADER_CARD_G : BARE_CARD_G;
@@ -83,7 +82,6 @@ export default function CartPage() {
     return cardsWeight + BUBBLE_MAILER_G;
   }, [items]);
 
-  // Determine available shipping options
   const shippingOptions = useMemo((): ShippingOption[] => {
     if (totalWeightG <= 100) return [SECOND_CLASS, TRACKED_48];
     if (totalWeightG <= 1000) return [TRACKED_48];
@@ -159,7 +157,6 @@ export default function CartPage() {
       window.sessionStorage.setItem("collectra_sumup_checkout_id", String(payload.checkoutId || ""));
       window.sessionStorage.setItem("collectra_sumup_cart", JSON.stringify(items.map((i) => ({ cardId: i.cardId, playerName: i.playerName, quantity: i.quantity }))));
       window.sessionStorage.setItem("collectra_sumup_shipping", JSON.stringify({ ...shipping, shippingRate: selectedRate, discountCode: appliedCode?.code ?? null, freeShipping: appliedCode?.type === "free_shipping" }));
-      // Redirect to SumUp — checkoutId is also in the return URL so it survives the redirect
       window.location.href = String(payload.checkoutUrl || "/cart");
       return;
     }
@@ -169,7 +166,7 @@ export default function CartPage() {
 
   return (
     <Layout>
-      <div className="mx-auto max-w-5xl space-y-8 animate-fade-up">
+      <div className="mx-auto max-w-5xl space-y-6 animate-fade-up">
 
         {/* Header */}
         <div className="flex flex-wrap items-end justify-between gap-4">
@@ -199,7 +196,7 @@ export default function CartPage() {
             ]}
           />
         ) : (
-          <div className="grid gap-6 xl:grid-cols-[1fr_320px]">
+          <div className="grid gap-6 xl:grid-cols-[1fr_300px]">
 
             {/* Left column */}
             <div className="space-y-4">
@@ -211,48 +208,45 @@ export default function CartPage() {
                   className="overflow-hidden rounded-2xl transition-all duration-200 hover:-translate-y-0.5"
                   style={{ background: "linear-gradient(145deg, #fffdf8, #faf5ed)", border: "1px solid rgba(200,155,60,0.12)", boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}
                 >
-                  <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className="h-24 w-16 flex-shrink-0 overflow-hidden rounded-xl" style={{ background: "rgba(200,155,60,0.06)", border: "1px solid rgba(200,155,60,0.15)" }}>
-                        {item.imageUrl
-                          // eslint-disable-next-line @next/next/no-img-element
-                          ? <img src={item.imageUrl} alt={`${item.playerName} #${item.cardNumber}`} className="h-full w-full object-cover" />
-                          : <div className="flex h-full items-center justify-center text-2xl opacity-20">🃏</div>
-                        }
+                  <div className="flex items-center gap-4 p-4">
+                    <div className="h-20 w-14 flex-shrink-0 overflow-hidden rounded-xl" style={{ background: "rgba(200,155,60,0.06)", border: "1px solid rgba(200,155,60,0.15)" }}>
+                      {item.imageUrl
+                        // eslint-disable-next-line @next/next/no-img-element
+                        ? <img src={item.imageUrl} alt={`${item.playerName} #${item.cardNumber}`} className="h-full w-full object-cover" />
+                        : <div className="flex h-full items-center justify-center text-2xl opacity-20">🃏</div>
+                      }
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="truncate text-[14px] font-black text-zinc-900">{item.playerName}</p>
+                      <p className="text-[11px] text-zinc-500">Card #{item.cardNumber}</p>
+                      <p className="mt-0.5 text-[12px] font-bold text-[var(--gold-600)]">{formatGBP(item.price)} each</p>
+                    </div>
+                    <div className="flex flex-col items-end gap-2">
+                      <p className="text-[15px] font-black text-zinc-900">{formatGBP(item.price * item.quantity)}</p>
+                      <div className="flex items-center gap-1.5">
+                        <button type="button" onClick={() => decreaseQuantity(item.cardId)} className="flex h-7 w-7 items-center justify-center rounded-lg text-sm font-bold text-zinc-600 transition hover:bg-white" style={{ border: "1px solid rgba(0,0,0,0.1)" }}>−</button>
+                        <span className="w-6 text-center text-[13px] font-black text-zinc-900">{item.quantity}</span>
+                        <button type="button" onClick={() => increaseQuantity(item.cardId)} disabled={typeof item.availableQuantity === "number" && item.quantity >= item.availableQuantity} className="flex h-7 w-7 items-center justify-center rounded-lg text-sm font-bold text-zinc-600 transition hover:bg-white disabled:opacity-40" style={{ border: "1px solid rgba(0,0,0,0.1)" }}>+</button>
+                        <button type="button" onClick={() => removeFromCart(item.cardId)} className="ml-1 rounded-lg px-2 py-1 text-[11px] font-semibold text-rose-500 transition hover:bg-rose-50">✕</button>
                       </div>
-                      <div>
-                        <p className="text-[15px] font-black text-zinc-900">{item.playerName}</p>
-                        <p className="text-[12px] text-zinc-500">Card #{item.cardNumber}</p>
-                        <p className="mt-1 text-[13px] font-bold text-[var(--gold-600)]">{formatGBP(item.price)} each</p>
-                      </div>
                     </div>
-                    <div className="text-left sm:text-right">
-                      <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-400">Line total</p>
-                      <p className="mt-0.5 text-xl font-black text-zinc-900">{formatGBP(item.price * item.quantity)}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between border-t px-5 py-3" style={{ borderColor: "rgba(200,155,60,0.1)", background: "rgba(200,155,60,0.03)" }}>
-                    <div className="flex items-center gap-2">
-                      <button type="button" onClick={() => decreaseQuantity(item.cardId)} className="flex h-8 w-8 items-center justify-center rounded-lg text-sm font-bold text-zinc-600 transition hover:bg-white" style={{ border: "1px solid rgba(0,0,0,0.1)" }}>−</button>
-                      <span className="min-w-8 text-center text-[13px] font-black text-zinc-900">{item.quantity}</span>
-                      <button type="button" onClick={() => increaseQuantity(item.cardId)} disabled={typeof item.availableQuantity === "number" && item.quantity >= item.availableQuantity} className="flex h-8 w-8 items-center justify-center rounded-lg text-sm font-bold text-zinc-600 transition hover:bg-white disabled:opacity-40" style={{ border: "1px solid rgba(0,0,0,0.1)" }}>+</button>
-                    </div>
-                    <button type="button" onClick={() => removeFromCart(item.cardId)} className="rounded-lg px-3 py-1.5 text-[12px] font-semibold text-rose-600 transition hover:bg-rose-50">Remove</button>
                   </div>
                 </article>
               ))}
 
-              <div className="flex justify-between gap-3 pt-1">
-                <Link href="/catalogue" className="rounded-full border border-[rgba(0,0,0,0.1)] bg-white px-5 py-2.5 text-[13px] font-semibold text-zinc-600 transition hover:text-zinc-900">Continue shopping</Link>
-                <button type="button" onClick={clearCart} className="rounded-full px-5 py-2.5 text-[13px] font-semibold text-zinc-400 transition hover:text-rose-600">Clear cart</button>
+              <div className="flex justify-between gap-3">
+                <Link href="/catalogue" className="rounded-full border border-[rgba(0,0,0,0.1)] bg-white px-4 py-2 text-[12px] font-semibold text-zinc-600 transition hover:text-zinc-900">← Continue shopping</Link>
+                <button type="button" onClick={clearCart} className="rounded-full px-4 py-2 text-[12px] font-semibold text-zinc-400 transition hover:text-rose-600">Clear cart</button>
               </div>
 
               {/* Shipping form */}
-              <div className="rounded-2xl p-6" style={{ background: "linear-gradient(145deg, #fffdf8, #faf5ed)", border: "1px solid rgba(200,155,60,0.12)" }}>
-                <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-[var(--gold-500)]">Shipping Details</p>
-                <p className="mt-1 text-[12px] text-zinc-400">UK delivery only · estimated weight {totalWeightG}g</p>
+              <div className="rounded-2xl p-5" style={{ background: "linear-gradient(145deg, #fffdf8, #faf5ed)", border: "1px solid rgba(200,155,60,0.12)" }}>
+                <div className="flex items-center justify-between mb-4">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-[var(--gold-500)]">Shipping Details</p>
+                  <p className="text-[11px] text-zinc-400">UK only · ~{totalWeightG}g</p>
+                </div>
 
-                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <div className="grid gap-3 sm:grid-cols-2">
                   <label className="block sm:col-span-2">
                     <span className={labelClass()}>Full Name</span>
                     <input value={shipping.fullName} onChange={(e) => setField("fullName", e.target.value)} placeholder="John Smith" className={inputClass()} />
@@ -266,7 +260,7 @@ export default function CartPage() {
                     <input value={shipping.addressLine1} onChange={(e) => setField("addressLine1", e.target.value)} placeholder="123 Example Street" className={inputClass()} />
                   </label>
                   <label className="block sm:col-span-2">
-                    <span className={labelClass()}>Address Line 2 <span className="normal-case text-zinc-400">(optional)</span></span>
+                    <span className={labelClass()}>Address Line 2 <span className="normal-case font-normal text-zinc-400">(optional)</span></span>
                     <input value={shipping.addressLine2} onChange={(e) => setField("addressLine2", e.target.value)} placeholder="Flat 4" className={inputClass()} />
                   </label>
                   <label className="block">
@@ -279,8 +273,8 @@ export default function CartPage() {
                   </label>
                 </div>
 
-                {/* Shipping options — shown automatically based on weight */}
-                <div className="mt-5 space-y-2">
+                {/* Shipping options */}
+                <div className="mt-4 space-y-2">
                   <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-zinc-500">Shipping Options</p>
                   {shippingOptions.map((option) => (
                     <label
@@ -294,82 +288,115 @@ export default function CartPage() {
                           <p className="text-[11px] text-zinc-400">{option.description}</p>
                         </div>
                       </div>
-                      <p className="text-[13px] font-black text-[#c89b3c]">{formatGBP(option.price)}</p>
+                      <p className="text-[13px] font-black text-[#c89b3c]">
+                        {appliedCode?.type === "free_shipping" ? <span className="text-emerald-600">Free</span> : formatGBP(option.price)}
+                      </p>
                     </label>
                   ))}
                 </div>
               </div>
             </div>
 
-            {/* Order summary */}
-            <aside className="h-fit rounded-2xl xl:sticky xl:top-24" style={{ background: "linear-gradient(145deg, #fffdf8, #faf5ed)", border: "1px solid rgba(200,155,60,0.15)", boxShadow: "0 8px 32px rgba(0,0,0,0.06)" }}>
-              <div className="p-5">
-                <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-[var(--gold-500)]">Order Summary</p>
-
-                <dl className="mt-4 space-y-3 text-[13px] text-zinc-600">
-                  <div className="flex items-center justify-between">
-                    <dt>Subtotal</dt>
-                    <dd className="font-bold text-zinc-900">{formatGBP(subtotal)}</dd>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <dt>Shipping</dt>
-                    <dd className="font-bold text-zinc-900">
-                      {appliedCode?.type === "free_shipping" ? (
-                        <span className="text-emerald-600">Free 🎉</span>
-                      ) : selectedRate ? formatGBP(selectedRate.price) : <span className="text-[12px] text-zinc-400">Select option</span>}
-                    </dd>
-                  </div>
-                  <div className="border-t" style={{ borderColor: "rgba(200,155,60,0.15)" }} />
-                  <div className="flex items-center justify-between text-base">
-                    <dt className="font-black text-zinc-900">Total</dt>
-                    <dd className="font-black text-zinc-900">{formatGBP(orderTotal)}</dd>
-                  </div>
-                </dl>
-
-                <button
-                  type="button"
-                  onClick={() => void handleStartSumUpCheckout()}
-                  disabled={isStartingCheckout || !selectedRateId}
-                  className="btn-gold mt-5 w-full rounded-full py-3 text-[13px] font-bold disabled:opacity-50"
-                >
-                  {isStartingCheckout ? "Opening SumUp..." : "Checkout"}
-                </button>
-
-                {/* Discount code */}
-                <div className="mt-4">
-                  {appliedCode ? (
-                    <div className="flex items-center justify-between rounded-xl bg-emerald-50 border border-emerald-200 px-3 py-2">
-                      <span className="text-[12px] font-semibold text-emerald-700">🎉 {appliedCode.code} applied</span>
-                      <button onClick={() => { setAppliedCode(null); setDiscountCode(""); }} className="text-[11px] text-emerald-500 hover:text-emerald-700">Remove</button>
-                    </div>
-                  ) : (
-                    <div className="flex gap-2">
-                      <input
-                        value={discountCode}
-                        onChange={e => setDiscountCode(e.target.value.toUpperCase())}
-                        onKeyDown={e => e.key === "Enter" && handleApplyCode()}
-                        placeholder="Discount code"
-                        className="flex-1 rounded-xl border border-[rgba(0,0,0,0.1)] bg-white px-3 py-2 text-[12px] text-zinc-800 outline-none focus:border-[rgba(200,155,60,0.4)]"
-                      />
-                      <button
-                        onClick={handleApplyCode}
-                        disabled={applyingCode || !discountCode.trim()}
-                        className="rounded-xl border border-[rgba(0,0,0,0.1)] bg-white px-3 py-2 text-[12px] font-semibold text-zinc-700 hover:bg-slate-50 disabled:opacity-50"
-                      >
-                        {applyingCode ? "..." : "Apply"}
-                      </button>
-                    </div>
-                  )}
-                  {discountError && <p className="mt-1.5 text-[11px] text-rose-600">{discountError}</p>}
+            {/* Order summary — sticky */}
+            <aside className="h-fit xl:sticky xl:top-6 space-y-3">
+              <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid rgba(200,155,60,0.25)", boxShadow: "0 8px 32px rgba(0,0,0,0.08)" }}>
+                {/* Header */}
+                <div className="px-5 py-4" style={{ background: "linear-gradient(135deg, #f5d97a, #c89b3c)" }}>
+                  <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-[#1a0e00]">Order Summary</p>
+                  <p className="mt-0.5 text-[12px] text-[rgba(26,14,0,0.6)]">{itemCount} item{itemCount !== 1 ? "s" : ""}</p>
                 </div>
 
-                {checkoutError && (
-                  <p className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-[12px] text-rose-700 border border-rose-200">{checkoutError}</p>
-                )}
+                <div className="p-5" style={{ background: "linear-gradient(145deg, #fffdf8, #faf5ed)" }}>
+                  <dl className="space-y-2.5 text-[13px] text-zinc-600">
+                    <div className="flex items-center justify-between">
+                      <dt>Subtotal</dt>
+                      <dd className="font-bold text-zinc-900">{formatGBP(subtotal)}</dd>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <dt>Shipping</dt>
+                      <dd className="font-bold text-zinc-900">
+                        {appliedCode?.type === "free_shipping" ? (
+                          <span className="text-emerald-600">Free 🎉</span>
+                        ) : selectedRate ? formatGBP(selectedRate.price) : <span className="text-[12px] text-zinc-400">Select option</span>}
+                      </dd>
+                    </div>
+                    <div className="border-t pt-2.5" style={{ borderColor: "rgba(200,155,60,0.2)" }}>
+                      <div className="flex items-center justify-between">
+                        <dt className="text-base font-black text-zinc-900">Total</dt>
+                        <dd className="text-base font-black text-zinc-900">{formatGBP(orderTotal)}</dd>
+                      </div>
+                    </div>
+                  </dl>
 
-                <p className="mt-3 text-center text-[11px] text-zinc-400">
-                  Secure payment via SumUp · Prices in GBP
-                </p>
+                  {/* Checkout button */}
+                  <button
+                    type="button"
+                    onClick={() => void handleStartSumUpCheckout()}
+                    disabled={isStartingCheckout || !selectedRateId}
+                    className="mt-4 w-full rounded-full py-3.5 text-[14px] font-black transition-all disabled:opacity-50"
+                    style={{
+                      background: isStartingCheckout || !selectedRateId ? "rgba(200,155,60,0.4)" : "linear-gradient(135deg, #f5d97a, #c89b3c)",
+                      color: "#1a0e00",
+                      boxShadow: isStartingCheckout || !selectedRateId ? "none" : "0 4px 16px rgba(200,155,60,0.4)",
+                    }}
+                  >
+                    {isStartingCheckout ? "Opening checkout..." : `Pay ${formatGBP(orderTotal)}`}
+                  </button>
+
+                  {checkoutError && (
+                    <p className="mt-2 rounded-xl bg-rose-50 px-3 py-2 text-[12px] text-rose-700 border border-rose-200">{checkoutError}</p>
+                  )}
+
+                  {/* Discount code */}
+                  <div className="mt-3">
+                    {appliedCode ? (
+                      <div className="flex items-center justify-between rounded-xl bg-emerald-50 border border-emerald-200 px-3 py-2">
+                        <span className="text-[12px] font-semibold text-emerald-700">🎉 {appliedCode.code} applied</span>
+                        <button onClick={() => { setAppliedCode(null); setDiscountCode(""); }} className="text-[11px] text-emerald-500 hover:text-emerald-700">Remove</button>
+                      </div>
+                    ) : (
+                      <div className="flex gap-2">
+                        <input
+                          value={discountCode}
+                          onChange={e => setDiscountCode(e.target.value.toUpperCase())}
+                          onKeyDown={e => e.key === "Enter" && handleApplyCode()}
+                          placeholder="Discount code"
+                          className="flex-1 rounded-xl border border-[rgba(0,0,0,0.1)] bg-white px-3 py-2 text-[12px] text-zinc-800 outline-none focus:border-[rgba(200,155,60,0.4)]"
+                        />
+                        <button
+                          onClick={handleApplyCode}
+                          disabled={applyingCode || !discountCode.trim()}
+                          className="rounded-xl border border-[rgba(0,0,0,0.1)] bg-white px-3 py-2 text-[12px] font-semibold text-zinc-700 hover:bg-slate-50 disabled:opacity-50"
+                        >
+                          {applyingCode ? "..." : "Apply"}
+                        </button>
+                      </div>
+                    )}
+                    {discountError && <p className="mt-1.5 text-[11px] text-rose-600">{discountError}</p>}
+                  </div>
+
+                  {/* Trust signals */}
+                  <div className="mt-4 border-t pt-4" style={{ borderColor: "rgba(200,155,60,0.15)" }}>
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-[11px] text-zinc-500">
+                        <span>🔒</span>
+                        <span>Secure payment via SumUp</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-[11px] text-zinc-500">
+                        <span>📦</span>
+                        <span>Dispatched within 1-2 business days</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-[11px] text-zinc-500">
+                        <span>✉️</span>
+                        <span>Order confirmation sent by email</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-[11px] text-zinc-500">
+                        <span>🇬🇧</span>
+                        <span>UK delivery only · Prices in GBP</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </aside>
           </div>

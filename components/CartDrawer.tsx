@@ -76,8 +76,8 @@ export function CartDrawer() {
           ) : (
             <ul className="space-y-3">
               {items.map((item) => (
-                <li key={item.id} className="flex gap-4 rounded-2xl p-4" style={{ background: "rgba(0,0,0,0.02)", border: "1px solid rgba(0,0,0,0.07)" }}>
-                  <div className="h-20 w-14 flex-shrink-0 overflow-hidden rounded-xl" style={{ background: "rgba(0,0,0,0.04)", border: "1px solid rgba(0,0,0,0.07)" }}>
+                <li key={item.id} className="flex gap-3 rounded-2xl p-3" style={{ background: "rgba(0,0,0,0.02)", border: "1px solid rgba(0,0,0,0.07)" }}>
+                  <div className="h-24 w-16 flex-shrink-0 overflow-hidden rounded-xl" style={{ background: "rgba(0,0,0,0.04)", border: "1px solid rgba(0,0,0,0.07)" }}>
                     {item.imageUrl
                       // eslint-disable-next-line @next/next/no-img-element
                       ? <img src={item.imageUrl} alt={item.playerName} className="h-full w-full object-cover" />
@@ -90,8 +90,13 @@ export function CartDrawer() {
                         <p className="truncate text-sm font-bold text-zinc-800">{item.playerName}</p>
                         <p className="text-[11px] text-zinc-400">#{item.cardNumber}</p>
                       </div>
-                      <button type="button" onClick={() => removeFromCart(item.cardId)} className="flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold text-rose-500 transition hover:bg-rose-50 hover:text-rose-700" style={{ border: "1px solid rgba(220,38,38,0.2)" }}>
-                        Remove
+                      <button
+                        type="button"
+                        onClick={() => removeFromCart(item.cardId)}
+                        className="flex-shrink-0 flex h-6 w-6 items-center justify-center rounded-full text-zinc-300 transition hover:bg-rose-50 hover:text-rose-500"
+                        title="Remove"
+                      >
+                        ✕
                       </button>
                     </div>
                     <div className="flex items-center justify-between">
@@ -100,7 +105,7 @@ export function CartDrawer() {
                         <span className="min-w-6 text-center text-sm font-bold text-zinc-800">{item.quantity}</span>
                         <button type="button" onClick={() => increaseQuantity(item.cardId)} disabled={typeof item.availableQuantity === "number" && item.quantity >= item.availableQuantity} className="flex h-6 w-6 items-center justify-center rounded-full text-sm font-bold text-zinc-500 transition hover:bg-[rgba(0,0,0,0.06)] hover:text-zinc-800 disabled:opacity-25" style={{ border: "1px solid rgba(0,0,0,0.1)" }}>+</button>
                       </div>
-                      <p className="text-sm font-black text-[#f5d97a]">{formatGBP(item.price * item.quantity)}</p>
+                      <p className="text-sm font-black text-[#c89b3c]">{formatGBP(item.price * item.quantity)}</p>
                     </div>
                   </div>
                 </li>
@@ -111,20 +116,29 @@ export function CartDrawer() {
 
         {/* Footer */}
         {items.length > 0 && (
-          <div className="space-y-4 px-5 py-5" style={{ borderTop: "1px solid rgba(0,0,0,0.07)", background: "rgba(0,0,0,0.02)" }}>
-            <div className="flex items-center justify-between text-[13px] text-zinc-400">
-              <span>{itemCount} item{itemCount !== 1 ? "s" : ""}</span>
-              <span className="font-semibold text-zinc-700">{formatGBP(subtotal)}</span>
+          <div className="px-5 py-4 space-y-3" style={{ borderTop: "1px solid rgba(0,0,0,0.07)" }}>
+            <div className="flex items-center justify-between text-[13px]">
+              <span className="text-zinc-400">{itemCount} item{itemCount !== 1 ? "s" : ""}</span>
+              <span className="font-semibold text-zinc-600">{formatGBP(subtotal)}</span>
             </div>
-            <div className="flex items-center justify-between text-base font-black">
-              <span className="text-zinc-800">Total</span>
-              <span className="text-[#c89b3c]">{formatGBP(grandTotal)}</span>
+            <div className="flex items-center justify-between">
+              <span className="text-base font-black text-zinc-800">Total</span>
+              <span className="text-base font-black text-[#c89b3c]">{formatGBP(grandTotal)}</span>
             </div>
-            <Link href="/cart" onClick={closeCart} className="block w-full rounded-full py-3.5 text-center text-sm font-black text-[#1a0e00] transition hover:-translate-y-0.5" style={{ background: "linear-gradient(135deg, #f5d97a, #c89b3c)", boxShadow: "0 4px 20px rgba(200,155,60,0.35)" }}>
+            <Link
+              href="/cart"
+              onClick={closeCart}
+              className="block w-full rounded-full py-3.5 text-center text-sm font-black text-[#1a0e00] transition hover:-translate-y-0.5"
+              style={{ background: "linear-gradient(135deg, #f5d97a, #c89b3c)", boxShadow: "0 4px 20px rgba(200,155,60,0.35)" }}
+            >
               Checkout →
             </Link>
-            <button type="button" onClick={closeCart} className="block w-full rounded-full border border-[rgba(0,0,0,0.1)] py-2.5 text-center text-sm font-semibold text-zinc-500 transition hover:border-[rgba(0,0,0,0.15)] hover:text-zinc-700">
-              Continue browsing
+            <button
+              type="button"
+              onClick={closeCart}
+              className="w-full rounded-full py-2 text-center text-[12px] font-medium text-zinc-400 transition hover:text-zinc-600"
+            >
+              ← Continue browsing
             </button>
           </div>
         )}

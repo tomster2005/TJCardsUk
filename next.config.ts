@@ -2,9 +2,16 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   onDemandEntries: {
-    // Keep pages in memory for less time to reduce RAM usage
     maxInactiveAge: 10 * 1000,
     pagesBufferLength: 2,
+  },
+  async headers() {
+    return [
+      {
+        source: "/.well-known/apple-developer-merchantid-domain-association",
+        headers: [{ key: "Content-Type", value: "application/json" }],
+      },
+    ];
   },
 };
 

@@ -18,6 +18,7 @@ type EditableCard = {
   team: string;
   image_url: string;
   back_image_url: string;
+  storage_location: string;
 };
 
 type CardCopy = {
@@ -25,6 +26,7 @@ type CardCopy = {
   owner: string;
   sold: boolean;
   created_at: string;
+  storage_location: string;
 };
 
 export default function EditCardPage() {
@@ -54,7 +56,7 @@ export default function EditCardPage() {
     (async () => {
       const [{ data, error }, { data: copiesData }] = await Promise.all([
         supabase.from("cards").select("*").eq("id", id).limit(1).single(),
-        supabase.from("card_copies").select("id, owner, sold, created_at").eq("card_id", id).order("created_at", { ascending: true }),
+        supabase.from("card_copies").select("id, owner, sold, created_at, storage_location").eq("card_id", id).order("created_at", { ascending: true }),
       ]);
       if (!mounted) return;
 
@@ -78,6 +80,7 @@ export default function EditCardPage() {
         team: data.team ?? "",
         image_url: data.image_url ?? "",
         back_image_url: data.back_image_url ?? "",
+        storage_location: data.storage_location ?? "",
       });
       setIsLoadingCard(false);
     })();
@@ -86,6 +89,14 @@ export default function EditCardPage() {
       mounted = false;
     };
   }, [params, loading, user]);
+
+  async function updateCopyLocation(copyId: string, location: string) {
+    const supabase = getBrowserSupabase();
+    if (!supabase) return;
+    const val = location.trim() || null;
+    await supabase.from("card_copies").update({ storage_location: val }).eq("id", copyId);
+    setCopies((prev) => prev.map((c) => c.id === copyId ? { ...c, storage_location: location } : c));
+  }
 
   async function updateCopyOwner(copyId: string, newOwner: string) {
     const supabase = getBrowserSupabase();
@@ -161,6 +172,7 @@ export default function EditCardPage() {
       team: activeCard.team.trim() || null,
       image_url: activeCard.image_url.trim() || null,
       back_image_url: activeCard.back_image_url.trim() || null,
+      storage_location: activeCard.storage_location.trim() || null,
       is_base_variant: !activeCard.parallel.trim(),
     };
 
@@ -268,6 +280,11 @@ export default function EditCardPage() {
             <input value={card.back_image_url} onChange={(e) => setCard((cur) => (cur ? { ...cur, back_image_url: e.target.value } : cur))} placeholder="https://..." className="mt-2 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none font-mono text-xs" />
           </label>
 
+          <label className="block">
+            <span className="text-sm text-zinc-700">Storage Location</span>
+            <input value={card.storage_location} onChange={(e) => setCard((cur) => (cur ? { ...cur, storage_location: e.target.value } : cur))} placeholder="e.g. 1A, 2B" className="mt-2 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
+          </label>
+
           <p className="text-xs text-zinc-400">Cards with no parallel show in the catalogue. Cards with a parallel are variants.</p>
 
           {/* Copies / Ownership */}
@@ -287,6 +304,13 @@ export default function EditCardPage() {
                     <option value="Jamie">Jamie</option>
                     <option value="Joint">Joint</option>
                   </select>
+                  <input
+                    value={copy.storage_location ?? ""}
+                    disabled={copy.sold || copySaving === copy.id}
+                    onChange={(e) => updateCopyLocation(copy.id, e.target.value)}
+                    placeholder="Bag e.g. 1AAA"
+                    className="w-24 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-zinc-700 outline-none disabled:opacity-50"
+                  />
                   {copy.sold ? (
                     <span className="text-xs text-zinc-400">Sold</span>
                   ) : (

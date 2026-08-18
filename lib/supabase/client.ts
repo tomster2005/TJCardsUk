@@ -25,7 +25,8 @@ export function getBrowserSupabase() {
         },
         setItem: (key, value) => {
           if (typeof document === "undefined") return;
-          document.cookie = `${key}=${encodeURIComponent(value)};path=/;max-age=31536000;SameSite=Lax`;
+          const secure = location.protocol === "https:" ? ";Secure" : "";
+          document.cookie = `${key}=${encodeURIComponent(value)};path=/;max-age=31536000;SameSite=Lax${secure}`;
         },
         removeItem: (key) => {
           if (typeof document === "undefined") return;

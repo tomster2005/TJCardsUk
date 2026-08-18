@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Playfair_Display } from "next/font/google";
-import { CollectionProvider } from "@/contexts/CollectionContext";
 import { CartProvider } from "@/contexts/CartContext";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { Analytics } from "@vercel/analytics/next";
@@ -46,9 +45,7 @@ export default function RootLayout({
     >
       <body className="min-h-full bg-[#f8f6f2] text-zinc-800">
         <AuthProvider>
-          <CartProvider>
-            <CollectionProvider>{children}</CollectionProvider>
-          </CartProvider>
+          <CartProvider>{children}</CartProvider>
         </AuthProvider>
         <Analytics />
       </body>

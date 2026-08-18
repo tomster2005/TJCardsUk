@@ -6,7 +6,7 @@ import { formatGBP } from "@/lib/currency";
 
 const SUMUP_FEE_RATE = 0.0169;
 
-type OrderItem = { cardId: string; playerName: string; quantity: number; price?: number; owner?: string | null };
+type OrderItem = { cardId: string; playerName: string; quantity: number; price?: number; owner?: string | null; storage_location?: string | null };
 
 type Order = {
   id: string;
@@ -120,10 +120,12 @@ export default function OrdersPage() {
             <div key={order.id} className="rounded-2xl border border-slate-300/60 bg-white/92 shadow-sm overflow-hidden">
 
               {/* Order header row */}
-              <button
-                type="button"
+              <div
+                role="button"
+                tabIndex={0}
                 onClick={() => setExpanded(expanded === order.id ? null : order.id)}
-                className="w-full flex flex-wrap items-center justify-between gap-4 px-6 py-4 text-left hover:bg-slate-50/50 transition"
+                onKeyDown={(e) => e.key === "Enter" && setExpanded(expanded === order.id ? null : order.id)}
+                className="w-full flex flex-wrap items-center justify-between gap-4 px-6 py-4 text-left hover:bg-slate-50/50 transition cursor-pointer"
               >
                 <div className="flex flex-wrap items-center gap-4">
                   <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase ${
@@ -151,7 +153,7 @@ export default function OrdersPage() {
                   </button>
                   <span className="text-zinc-400">{expanded === order.id ? "▲" : "▼"}</span>
                 </div>
-              </button>
+              </div>
 
               {/* Expanded detail */}
               {expanded === order.id && (
@@ -163,7 +165,14 @@ export default function OrdersPage() {
                     <ul className="space-y-2">
                       {order.items.map((item, i) => (
                         <li key={i} className="flex items-center justify-between text-sm">
-                          <span className="text-zinc-800">{item.playerName} <span className="text-zinc-400">×{item.quantity}</span></span>
+                          <span className="text-zinc-800">
+                            {item.playerName} <span className="text-zinc-400">×{item.quantity}</span>
+                            {item.storage_location && (
+                              <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800">
+                                📦 {item.storage_location}
+                              </span>
+                            )}
+                          </span>
                           {item.price != null && <span className="font-semibold text-zinc-700">{formatGBP(item.price * item.quantity)}</span>}
                         </li>
                       ))}

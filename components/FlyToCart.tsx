@@ -15,15 +15,17 @@ type FlyingItem = {
 let flyQueue: ((item: Omit<FlyingItem, "id">) => void) | null = null;
 
 export function triggerFlyToCart(imageUrl: string, startRect: DOMRect) {
+  if (!flyQueue) return;
   const cartEl = document.querySelector("[data-cart-icon]");
-  if (!cartEl || !flyQueue) return;
-  const cartRect = cartEl.getBoundingClientRect();
+  // Fall back to top-right corner if cart icon not found
+  const endX = cartEl ? cartEl.getBoundingClientRect().left + cartEl.getBoundingClientRect().width / 2 : window.innerWidth - 40;
+  const endY = cartEl ? cartEl.getBoundingClientRect().top + cartEl.getBoundingClientRect().height / 2 : 24;
   flyQueue({
     imageUrl,
     startX: startRect.left + startRect.width / 2,
     startY: startRect.top + startRect.height / 2,
-    endX: cartRect.left + cartRect.width / 2,
-    endY: cartRect.top + cartRect.height / 2,
+    endX,
+    endY,
   });
 }
 

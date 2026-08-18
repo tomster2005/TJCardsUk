@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, useRef, forwardRef, useCallback } from "react";
 import { getBrowserSupabase } from "@/lib/supabase/client";
+import { fetchAll } from "@/lib/supabase/fetchAll";
 import { useAuth } from "@/contexts/AuthContext";
 import { VaultLoader } from "@/components/VaultLoader";
 import { EmptyState } from "@/components/EmptyState";
@@ -372,6 +373,7 @@ export function BinderView() {
   const [binderSearch, setBinderSearch] = useState("");
   const [hiddenSetIds, setHiddenSetIds] = useState<Set<string>>(new Set());
   const [showMissing, setShowMissing] = useState(false);
+  const [progressBySet, setProgressBySet] = useState<Record<string, { collected: number; total: number }>>({});
   const bookRef = useRef<any>(null);
 
   useEffect(() => {
@@ -391,10 +393,28 @@ export function BinderView() {
       ]);
       if (setsResult.data && setsResult.data.length > 0) setSets(setsResult.data);
       if (hiddenResult.data) setHiddenSetIds(new Set(hiddenResult.data.map((r: any) => r.set_id)));
+
+      // Fetch per-set progress for the logged-in user
+      if (user && setsResult.data && setsResult.data.length > 0) {
+        const setIds = setsResult.data.map((s: any) => s.id);
+        const [checklistRows, progressRows] = await Promise.all([
+          fetchAll<{ id: string; set_id: string }>(supabase.from("binder_checklist").select("id, set_id").in("set_id", setIds)),
+          fetchAll<{ checklist_id: string }>(supabase.from("user_binder_progress").select("checklist_id").eq("user_id", user.id)),
+        ]);
+        const collectedIds = new Set(progressRows.map((p) => p.checklist_id));
+        const bySet: Record<string, { collected: number; total: number }> = {};
+        for (const row of checklistRows) {
+          if (!bySet[row.set_id]) bySet[row.set_id] = { collected: 0, total: 0 };
+          bySet[row.set_id].total++;
+          if (collectedIds.has(row.id)) bySet[row.set_id].collected++;
+        }
+        setProgressBySet(bySet);
+      }
+
       setLoading(false);
     }
     load();
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     if (!activeSetId) return;
@@ -408,76 +428,65 @@ export function BinderView() {
 
     setChecklistLoading(true);
     const activeSet = sets.find((s) => s.id === activeSetId);
+    const activeSetTitle = activeSet?.title ?? "";
 
-    const { data: checklistData, error: checklistError } = await supabase
-      .from("binder_checklist")
-      .select("*")
-      .eq("set_id", activeSetId)
-      .order("page_number")
-      .order("position")
-      .range(0, 9999);
+    const checklistData = await fetchAll<any>(
+      supabase.from("binder_checklist").select("*").eq("set_id", activeSetId).order("page_number").order("position")
+    );
 
-    if (checklistError || !checklistData || checklistData.length === 0) {
+    if (!checklistData || checklistData.length === 0) {
       setChecklist([]);
       setChecklistLoading(false);
       return;
     }
 
+    // If we don't have the set title yet, fetch it now so the cards query works
+    const setTitle = activeSetTitle || await supabase
+      .from("binder_sets").select("title").eq("id", activeSetId).single()
+      .then(({ data }) => data?.title ?? "");
+
     const checklistIds = checklistData.map((c) => c.id);
 
-    // Run all remaining queries in parallel
-    const [progressResult, cardsResult, communityResult, personalResult] = await Promise.all([
+    // Fetch images + progress in parallel after the binder is already visible
+    const [progressRows, cardsData, communityData, personalData] = await Promise.all([
       user
-        ? supabase
-            .from("user_binder_progress")
-            .select("checklist_id")
-            .eq("user_id", user.id)
-            .in("checklist_id", checklistIds)
-            .range(0, 9999)
-        : Promise.resolve({ data: null }),
-      supabase
-        .from("cards")
-        .select("card_number, image_url, image_front, stock, set_name, is_base_variant, parallel")
-        .eq("set_name", activeSet?.title || "")
-        .order("is_base_variant", { ascending: false })
-        .order("parallel", { ascending: true, nullsFirst: true })
-        .range(0, 9999),
-      supabase
-        .from("community_images")
-        .select("checklist_id, image_url, username, parallel, binder_checklist!inner(set_id)")
-        .eq("status", "approved")
-        .eq("binder_checklist.set_id", activeSetId)
-        .range(0, 9999),
+        ? fetchAll<{ checklist_id: string }>(supabase.from("user_binder_progress").select("checklist_id").eq("user_id", user.id))
+        : Promise.resolve([]),
+      fetchAll<any>(supabase.from("cards").select("card_number, image_url, stock, set_name, parallel").eq("set_name", setTitle)),
+      (async () => {
+        const CHUNK = 20;
+        let results: any[] = [];
+        for (let i = 0; i < checklistIds.length; i += CHUNK) {
+          const chunk = checklistIds.slice(i, i + CHUNK);
+          const { data } = await supabase.from("community_images").select("checklist_id, image_url, username").eq("status", "approved").in("checklist_id", chunk);
+          if (data) results = results.concat(data);
+        }
+        return results;
+      })(),
       user
-        ? supabase
-            .from("personal_card_images")
-            .select("checklist_id, image_url, prefer_personal")
-            .eq("user_id", user.id)
-            .in("checklist_id", checklistIds)
-            .range(0, 9999)
-        : Promise.resolve({ data: null }),
+        ? fetchAll<any>(supabase.from("personal_card_images").select("checklist_id, image_url, prefer_personal").eq("user_id", user.id))
+        : Promise.resolve([]),
     ]);
 
-    const collectedSet = new Set<string>(
-      (progressResult.data ?? []).map((p: any) => p.checklist_id)
-    );
-    const cardsData = cardsResult.data;
-    const communityData = communityResult.data;
-    const personalData = personalResult.data;
+    const collectedSet = new Set<string>(progressRows.map((p) => p.checklist_id));
 
-    const cardLookup = new Map<string, { image_url: string | null; stock: number; isBase: boolean }>();
+
+    // Two maps keyed by card_number:
+    // baseImageMap  — image from a base (no parallel) card entry
+    // stockMap      — total stock across all variants
+    // fallbackImageMap — best image from any variant (used only if no base image exists)
+    const baseImageMap = new Map<string, string>();
+    const fallbackImageMap = new Map<string, string>();
+    const stockMap = new Map<string, number>();
     if (cardsData) {
       for (const c of cardsData) {
-        const existing = cardLookup.get(c.card_number);
         const isBase = !c.parallel || c.parallel.trim() === "";
-        if (!existing) {
-          cardLookup.set(c.card_number, { image_url: c.image_url || c.image_front || null, stock: c.stock || 0, isBase });
-        } else if (isBase && !existing.isBase) {
-          // Base card beats parallel — replace image but keep accumulated stock
-          cardLookup.set(c.card_number, { image_url: c.image_url || c.image_front || null, stock: existing.stock + (c.stock || 0), isBase: true });
-        } else {
-          // Same tier — accumulate stock only, keep existing image
-          cardLookup.set(c.card_number, { ...existing, stock: existing.stock + (c.stock || 0) });
+        stockMap.set(c.card_number, (stockMap.get(c.card_number) || 0) + (c.stock || 0));
+        if (isBase && c.image_url && !baseImageMap.has(c.card_number)) {
+          baseImageMap.set(c.card_number, c.image_url);
+        }
+        if (c.image_url && !fallbackImageMap.has(c.card_number)) {
+          fallbackImageMap.set(c.card_number, c.image_url);
         }
       }
     }
@@ -489,12 +498,10 @@ export function BinderView() {
 
     if (communityData) {
       for (const ci of communityData) {
-        const isBase = !ci.parallel || ci.parallel.trim() === "";
         if (ci.username === "Admin") {
-          // Prefer base (null parallel) image; only overwrite with parallel if no base exists yet
-          if (isBase || !adminImageLookup.has(ci.checklist_id)) adminImageLookup.set(ci.checklist_id, ci.image_url);
+          if (!adminImageLookup.has(ci.checklist_id)) adminImageLookup.set(ci.checklist_id, ci.image_url);
         } else {
-          if (isBase || !communityLookup.has(ci.checklist_id)) communityLookup.set(ci.checklist_id, { image_url: ci.image_url, username: ci.username || "Anonymous" });
+          if (!communityLookup.has(ci.checklist_id)) communityLookup.set(ci.checklist_id, { image_url: ci.image_url, username: ci.username || "Anonymous" });
         }
       }
     }
@@ -506,18 +513,16 @@ export function BinderView() {
     }
 
     const merged: ChecklistCard[] = checklistData.map((item) => {
-      const match = cardLookup.get(item.card_number);
+      const cardImage = baseImageMap.get(item.card_number) ?? fallbackImageMap.get(item.card_number) ?? null;
       const adminImage = adminImageLookup.get(item.id);
       const community = communityLookup.get(item.id);
-      // Priority for image_url: admin bulk-upload image > cards table image
-      const officialImage = adminImage || match?.image_url || null;
-      // community_image is only non-admin user submissions
+      const officialImage = adminImage || cardImage;
       const communityImage = community && community.username !== "Admin" ? community.image_url : null;
       const communityCredit = community && community.username !== "Admin" ? community.username : null;
       return {
         ...item,
         image_url: officialImage,
-        stock: match?.stock || 0,
+        stock: stockMap.get(item.card_number) || 0,
         community_image: communityImage,
         community_credit: communityCredit,
         personal_image: personalLookup.get(item.id)?.image_url || null,
@@ -688,32 +693,29 @@ export function BinderView() {
     return (
       <div className="space-y-6 animate-fade-up">
         {tabBar}
-        <div className="space-y-10">
-        {/* Hero */}
-        <div className="relative overflow-hidden rounded-2xl px-8 py-10 text-center" style={{ background: "linear-gradient(150deg, #1a0e06 0%, #2d1a0a 50%, #1a0e06 100%)", border: "1px solid rgba(200,155,60,0.2)" }}>
+
+        {/* Compact hero */}
+        <div className="relative overflow-hidden rounded-2xl px-6 py-6 flex items-center justify-between" style={{ background: "linear-gradient(150deg, #1a0e06 0%, #2d1a0a 50%, #1a0e06 100%)", border: "1px solid rgba(200,155,60,0.2)" }}>
           <div className="pointer-events-none absolute inset-0 opacity-[0.035]" style={{ backgroundImage: "linear-gradient(rgba(200,155,60,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(200,155,60,0.5) 1px, transparent 1px)", backgroundSize: "48px 48px" }} />
-          <div className="pointer-events-none absolute left-1/2 top-0 h-40 w-96 -translate-x-1/2 opacity-30" style={{ background: "radial-gradient(ellipse, rgba(200,155,60,0.35), transparent 70%)" }} />
-          <div className="relative z-10 flex flex-col items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl" style={{ background: "rgba(200,155,60,0.12)", border: "1px solid rgba(200,155,60,0.3)", boxShadow: "0 0 20px rgba(200,155,60,0.2)" }}>
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#c89b3c" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" />
-                <path d="M8 7h6" /><path d="M8 11h4" />
-              </svg>
-            </div>
-            <div>
-              <span className="text-[10px] font-bold uppercase tracking-[0.4em] text-[#c89b3c]">The Vault</span>
-              <h1 className="mt-1 text-3xl font-black text-white font-display">Your Binders</h1>
-              <p className="mx-auto mt-1.5 max-w-sm text-[13px] text-[rgba(255,255,255,0.45)]">
-                Open a binder to track your collection and watch your progress grow.
-              </p>
-            </div>
+          <div className="relative z-10">
+            <span className="text-[10px] font-bold uppercase tracking-[0.4em] text-[#c89b3c]">The Vault</span>
+            <h1 className="mt-1 text-2xl font-black text-white font-display">Your Binders</h1>
+            <p className="mt-1 text-[13px] text-[rgba(255,255,255,0.45)]">Track your collection across {sets.length} set{sets.length !== 1 ? "s" : ""}</p>
+          </div>
+          <div className="relative z-10 flex h-12 w-12 items-center justify-center rounded-xl" style={{ background: "rgba(200,155,60,0.12)", border: "1px solid rgba(200,155,60,0.3)", boxShadow: "0 0 20px rgba(200,155,60,0.2)" }}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#c89b3c" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" />
+              <path d="M8 7h6" /><path d="M8 11h4" />
+            </svg>
           </div>
         </div>
 
         {/* Binder cards */}
-        <div className="mx-auto grid w-full max-w-4xl gap-5 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {sets.map((s, idx) => {
             const isHidden = hiddenSetIds.has(s.id);
+            const prog = progressBySet[s.id];
+            const pct = prog && prog.total > 0 ? Math.round((prog.collected / prog.total) * 100) : 0;
             return (
               <div
                 key={s.id}
@@ -730,31 +732,46 @@ export function BinderView() {
                   animationDelay: `${idx * 80}ms`,
                 }}
               >
-                {/* Shimmer on hover */}
                 <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-500 group-hover:opacity-100" style={{ background: "linear-gradient(135deg, rgba(200,155,60,0.1) 0%, transparent 60%)" }} />
                 <div className="pointer-events-none absolute inset-0 rounded-2xl opacity-0 transition-opacity duration-300 group-hover:opacity-100" style={{ boxShadow: "inset 0 0 0 1px rgba(200,155,60,0.45)" }} />
 
-                <div className="relative z-10 flex flex-1 flex-col p-6">
+                <div className="relative z-10 flex flex-1 flex-col p-5">
                   {/* Top row */}
                   <div className="flex items-center justify-between gap-2">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl" style={{ background: "rgba(200,155,60,0.12)", border: "1px solid rgba(200,155,60,0.25)" }}>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#c89b3c" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg" style={{ background: "rgba(200,155,60,0.12)", border: "1px solid rgba(200,155,60,0.25)" }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c89b3c" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" />
                       </svg>
                     </div>
-                    <span className="rounded-full px-2.5 py-1 text-[10px] font-bold tracking-wide text-[#c89b3c]" style={{ background: "rgba(200,155,60,0.12)", border: "1px solid rgba(200,155,60,0.22)" }}>
+                    <span className="rounded-full px-2.5 py-0.5 text-[10px] font-bold tracking-wide text-[#c89b3c]" style={{ background: "rgba(200,155,60,0.12)", border: "1px solid rgba(200,155,60,0.22)" }}>
                       {s.total_cards} cards
                     </span>
                   </div>
 
                   {/* Title + description */}
-                  <h3 className="mt-4 text-[17px] font-black leading-snug text-white transition-colors duration-200 group-hover:text-[#f5d97a]">{s.title}</h3>
-                  <p className="mt-1.5 min-h-[2.5rem] text-[12px] leading-relaxed text-[rgba(255,255,255,0.4)]">
-                    {s.description || "\u00a0"}
-                  </p>
+                  <h3 className="mt-3 text-[16px] font-black leading-snug text-white transition-colors duration-200 group-hover:text-[#f5d97a]">{s.title}</h3>
+                  {s.description && (
+                    <p className="mt-1 text-[11px] leading-relaxed text-[rgba(255,255,255,0.35)]">{s.description}</p>
+                  )}
+
+                  {/* Progress bar */}
+                  {user && prog && (
+                    <div className="mt-3">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[10px] text-[rgba(255,255,255,0.4)]">{prog.collected} / {prog.total} collected</span>
+                        <span className="text-[10px] font-bold text-[#c89b3c]">{pct}%</span>
+                      </div>
+                      <div className="h-1 w-full rounded-full" style={{ background: "rgba(255,255,255,0.08)" }}>
+                        <div
+                          className="h-1 rounded-full transition-all duration-700"
+                          style={{ width: `${pct}%`, background: "linear-gradient(90deg, #f5d97a, #c89b3c)" }}
+                        />
+                      </div>
+                    </div>
+                  )}
 
                   {/* Divider */}
-                  <div className="my-4 h-px" style={{ background: "rgba(200,155,60,0.12)" }} />
+                  <div className="my-3 h-px" style={{ background: "rgba(200,155,60,0.12)" }} />
 
                   {/* Footer row */}
                   <div className="flex items-center justify-between gap-3">
@@ -795,7 +812,6 @@ export function BinderView() {
             );
           })}
         </div>
-      </div>
       </div>
     );
   }

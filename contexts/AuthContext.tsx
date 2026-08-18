@@ -2,12 +2,13 @@
 
 import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from "react";
 import getBrowserSupabase from "@/lib/supabase/client";
+import type { User, Session } from "@supabase/supabase-js";
 
 type AppRole = "user" | "admin";
 
 type AuthState = {
-  user: any | null;
-  session: any | null;
+  user: User | null;
+  session: Session | null;
   loading: boolean;
   role: AppRole | null;
   isAdmin: boolean;
@@ -21,8 +22,8 @@ type AuthState = {
 const AuthContext = createContext<AuthState | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [session, setSession] = useState<any | null>(null);
-  const [user, setUser] = useState<any | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [role, setRole] = useState<AppRole | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);

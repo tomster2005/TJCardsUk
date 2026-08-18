@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, useEffect, useRef } from "react";
+import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import getBrowserSupabase from "@/lib/supabase/client";
 import { EmptyState } from "@/components/EmptyState";
 import { buildPublicCardPath, buildPublicCardSlugs } from "@/lib/cards/slug";
@@ -10,12 +10,17 @@ import { useCart } from "@/contexts/CartContext";
 import { formatGBP } from "@/lib/currency";
 import { triggerFlyToCart } from "@/components/FlyToCart";
 
+const PAGE_SIZE = 48;
 type SortOption = "cardNumber" | "playerName" | "priceLow" | "priceHigh";
 
 export function CatalogueGrid() {
   const cart = useCart();
   const [recentlyAddedCardId, setRecentlyAddedCardId] = useState<string | null>(null);
   const [cards, setCards] = useState<CatalogueCard[]>([]);
+  const [page, setPage] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
   // Initialise filters directly from sessionStorage to avoid restore/save race
   const [query, setQuery] = useState(() => { try { const f = JSON.parse(sessionStorage.getItem("catalogue_filters") ?? "{}"); return f.query ?? ""; } catch { return ""; } });
@@ -61,27 +66,44 @@ export function CatalogueGrid() {
   }, [cards, setFilter, categoryFilter]);
 
   useEffect(() => {
+    setCards([]);
+    setPage(0);
+    setHasMore(true);
+  }, [sortBy]);
+
+  const fetchPage = useCallback(async (pageIndex: number) => {
     const supabase = getBrowserSupabase();
     if (!supabase) return;
-    let mounted = true;
-    setIsLoading(true);
-    (async () => {
-      const { data, error } = await supabase.from("cards").select("*").eq("status", "published").order("card_number", { ascending: true }).order("parallel", { ascending: true, nullsFirst: true });
-      if (!mounted) return;
-      if (error) { setLoadError(error.message); setIsLoading(false); return; }
+    if (pageIndex === 0) setIsLoading(true);
+    else setLoadingMore(true);
 
-      // Deduplicate: one card per set_name+card_number, prefer base (no parallel).
-      // Also collapse rows that share a variant_group_id — keep only the base.
-      const seen = new Map<string, any>(); // key -> row
-      const seenByGroup = new Map<string, string>(); // variant_group_id -> key
+    const from = pageIndex * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
+
+    const { data, error } = await supabase
+      .from("cards")
+      .select("*")
+      .eq("status", "published")
+      .order("card_number", { ascending: true })
+      .order("parallel", { ascending: true, nullsFirst: true })
+      .range(from, to);
+
+    if (error) { setLoadError(error.message); setIsLoading(false); setLoadingMore(false); return; }
+
+    if (!data || data.length < PAGE_SIZE) setHasMore(false);
+
+    // Deduplicate within this page batch merged with existing cards
+    setCards((prev) => {
+      const allRows = pageIndex === 0 ? (data ?? []) : [...prev.map((c: any) => c._raw ?? c), ...(data ?? [])];
+
+      const seen = new Map<string, any>();
+      const seenByGroup = new Map<string, string>();
       const parallelsByKey = new Map<string, string[]>();
       const parallelRows = new Map<string, Map<string, any>>();
 
-      for (const d of (data ?? [])) {
+      for (const d of allRows) {
         const cardKey = `${d.set_name ?? ""}__${d.card_number ?? ""}`;
-        // If this card shares a variant_group_id with an already-seen card, use that card's key
         const groupKey = d.variant_group_id ? (seenByGroup.get(d.variant_group_id) ?? cardKey) : cardKey;
-
         if (d.parallel) {
           const existing = parallelsByKey.get(groupKey) ?? [];
           if (!existing.includes(d.parallel)) parallelsByKey.set(groupKey, [...existing, d.parallel]);
@@ -89,17 +111,14 @@ export function CatalogueGrid() {
           pMap.set(d.parallel, d);
           parallelRows.set(groupKey, pMap);
         }
-
         const existingBase = seen.get(groupKey);
         if (!existingBase || (!d.parallel && existingBase.parallel)) {
           seen.set(groupKey, d);
           if (d.variant_group_id) seenByGroup.set(d.variant_group_id, groupKey);
-        } else if (!existingBase && d.variant_group_id) {
-          seenByGroup.set(d.variant_group_id, cardKey);
         }
       }
-      const deduped = Array.from(seen.values());
-      const mapped = (deduped).map((d: any) => {
+
+      return Array.from(seen.values()).map((d: any) => {
         const cardKey = `${d.set_name ?? ""}__${d.card_number ?? ""}`;
         const key = d.variant_group_id ? (seenByGroup.get(d.variant_group_id) ?? cardKey) : cardKey;
         const setName = d.set_name ?? d.setName ?? "";
@@ -108,7 +127,6 @@ export function CatalogueGrid() {
         const rawStock = Number(d.stock ?? d.quantity);
         const availableQuantity = Number.isFinite(rawStock) ? Math.max(0, rawStock) : undefined;
         const { setSlug, cardSlug } = buildPublicCardSlugs({ setName, title, player: d.player, cardNumber });
-        // Store parallel rows so we can swap image when filtering
         const parallelRowMap = parallelRows.get(key) ?? new Map();
         return {
           id: d.id, playerName: d.player ?? "Unknown", cardNumber: cardNumber || "?",
@@ -125,13 +143,38 @@ export function CatalogueGrid() {
           variantParallels: parallelsByKey.get(key) ?? [],
           parallelRowMap,
           slug: d.slug ?? "", setSlug, cardSlug,
+          _raw: d,
         };
       });
-      setCards(mapped as unknown as CatalogueCard[]);
-      setIsLoading(false);
-    })();
-    return () => { mounted = false; };
+    });
+
+    setIsLoading(false);
+    setLoadingMore(false);
   }, []);
+
+  // Initial load
+  useEffect(() => {
+    fetchPage(0);
+  }, [fetchPage]);
+
+  // Load next page when sentinel comes into view
+  useEffect(() => {
+    if (!sentinelRef.current || !hasMore || loadingMore) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !loadingMore) {
+          setPage((p) => {
+            const next = p + 1;
+            fetchPage(next);
+            return next;
+          });
+        }
+      },
+      { rootMargin: "400px" }
+    );
+    observer.observe(sentinelRef.current);
+    return () => observer.disconnect();
+  }, [hasMore, loadingMore, fetchPage]);
 
   const visibleCards = useMemo(() => {
     const q = query.toLowerCase();
@@ -182,100 +225,106 @@ export function CatalogueGrid() {
     <div className="space-y-10">
 
       {/* ══ DISCOVERY HERO ══════════════════════════════════════════════ */}
-      <section className="relative overflow-hidden rounded-3xl animate-fade-up border border-[rgba(200,155,60,0.15)]" style={{ minHeight: 340 }}>
+      <section className="relative overflow-hidden rounded-3xl animate-fade-up border border-[rgba(200,155,60,0.15)]">
         <div className="absolute inset-0" style={{ background: "linear-gradient(135deg, #fef9ec 0%, #fdf6e3 40%, #f8f6f2 100%)" }} />
         <div className="absolute inset-0" style={{ background: "radial-gradient(ellipse 70% 60% at 50% -20%, rgba(200,155,60,0.15), transparent)" }} />
         <div className="absolute inset-0 opacity-[0.04]" style={{ backgroundImage: "linear-gradient(rgba(0,0,0,0.3) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,0.3) 1px, transparent 1px)", backgroundSize: "32px 32px" }} />
 
-        <div className="relative p-8 sm:p-12">
-          <div className="max-w-2xl space-y-5">
-            <span className="text-[11px] font-bold uppercase tracking-[0.35em] text-[#92400e]">Browse the Vault</span>
-            <h1 className="text-4xl font-black tracking-tight text-zinc-900 sm:text-5xl font-display">
-              Find your next<br />
-              <span className="text-gold">chase card.</span>
-            </h1>
-            <p className="text-[14px] leading-relaxed text-zinc-500">
-              {isLoading ? "Loading the vault..." : `${visibleCards.length} card${visibleCards.length !== 1 ? "s" : ""} available.`}
-            </p>
+        <div className="relative p-6 sm:p-8">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <span className="text-[11px] font-bold uppercase tracking-[0.35em] text-[#92400e]">Browse the Vault</span>
+              <h1 className="mt-1 text-3xl font-black tracking-tight text-zinc-900 sm:text-4xl font-display">
+                Find your next <span className="text-gold">chase card.</span>
+              </h1>
+              <p className="mt-1 text-[13px] text-zinc-500">
+                {isLoading ? "Loading the vault..." : `${visibleCards.length} card${visibleCards.length !== 1 ? "s" : ""} available`}
+              </p>
+            </div>
+            {/* Search integrated into hero */}
+            <div className="relative w-full sm:w-72">
+              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400 text-sm">🔍</span>
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search player, team, set..."
+                className="w-full rounded-2xl border border-[rgba(0,0,0,0.1)] bg-white/80 py-2.5 pl-9 pr-4 text-sm text-zinc-800 outline-none placeholder:text-zinc-400 transition focus:border-[rgba(200,155,60,0.4)] focus:bg-white"
+              />
+              {query && (
+                <button onClick={() => setQuery("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 text-xs">✕</button>
+              )}
+            </div>
           </div>
 
-          <div className="mt-8 flex flex-wrap gap-3">
-            {[
-              { label: "⚽ Football", filter: () => setCategoryFilter(categoryFilter === "Football" ? "all" : "Football"), active: categoryFilter === "Football" },
-              { label: "✨ Disney", filter: () => setCategoryFilter(categoryFilter === "Disney" ? "all" : "Disney"), active: categoryFilter === "Disney" },
-              { label: "📦 In Stock", filter: () => setInStockOnly((v: boolean) => !v), active: inStockOnly },
-            ].map((cat) => (
+          {/* Category pills + filters row */}
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap gap-2">
+              {[
+                { label: "⚽ Football", filter: () => setCategoryFilter(categoryFilter === "Football" ? "all" : "Football"), active: categoryFilter === "Football" },
+                { label: "✨ Disney", filter: () => setCategoryFilter(categoryFilter === "Disney" ? "all" : "Disney"), active: categoryFilter === "Disney" },
+                { label: "📦 In Stock", filter: () => setInStockOnly((v: boolean) => !v), active: inStockOnly },
+              ].map((cat) => (
+                <button
+                  key={cat.label}
+                  type="button"
+                  onClick={cat.filter}
+                  className={`rounded-full border px-4 py-1.5 text-[13px] font-semibold transition-all ${
+                    cat.active
+                      ? "border-[rgba(200,155,60,0.5)] bg-[rgba(200,155,60,0.15)] text-[#92400e] shadow-sm"
+                      : "border-[rgba(0,0,0,0.1)] bg-white text-zinc-600 hover:border-[rgba(200,155,60,0.3)] hover:text-zinc-900"
+                  }`}
+                >
+                  {cat.label}
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-2">
               <button
-                key={cat.label}
                 type="button"
-                onClick={cat.filter}
-                className={`rounded-full border px-4 py-2 text-sm font-semibold transition-all ${
-                  cat.active
-                    ? "border-[rgba(200,155,60,0.4)] bg-[rgba(200,155,60,0.12)] text-[#92400e]"
-                    : "border-[rgba(0,0,0,0.1)] bg-white text-zinc-600 hover:border-[rgba(0,0,0,0.15)] hover:text-zinc-900"
+                onClick={() => setShowFilters((v: boolean) => !v)}
+                className={`rounded-full border px-4 py-1.5 text-[13px] font-semibold transition ${
+                  showFilters ? "border-[rgba(200,155,60,0.3)] bg-[rgba(200,155,60,0.08)] text-[#92400e]" : "border-[rgba(0,0,0,0.1)] bg-white text-zinc-600 hover:text-zinc-900"
                 }`}
               >
-                {cat.label}
+                Filters {showFilters ? "↑" : "↓"}
               </button>
-            ))}
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as SortOption)}
+                className="rounded-full border border-[rgba(0,0,0,0.1)] bg-white px-4 py-1.5 text-[13px] text-zinc-700 outline-none"
+              >
+                <option value="cardNumber">Card #</option>
+                <option value="playerName">Player</option>
+                <option value="priceLow">Price ↑</option>
+                <option value="priceHigh">Price ↓</option>
+              </select>
+            </div>
           </div>
+
+          {showFilters && (
+            <div className="mt-3 animate-fade-up grid gap-3 rounded-2xl border border-[rgba(0,0,0,0.08)] bg-white/80 p-4 sm:grid-cols-3">
+              <select value={setFilter} onChange={(e) => { setSetFilter(e.target.value); setTeamFilter("all"); setParallelFilter("all"); }} className="rounded-xl border border-[rgba(0,0,0,0.1)] bg-white px-3 py-2 text-sm text-zinc-700 outline-none">
+                <option value="all">All sets</option>
+                {options.sets.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+              {options.teams.length > 0 && (
+                <select value={teamFilter} onChange={(e) => setTeamFilter(e.target.value)} className="rounded-xl border border-[rgba(0,0,0,0.1)] bg-white px-3 py-2 text-sm text-zinc-700 outline-none">
+                  <option value="all">All teams</option>
+                  {options.teams.map((t) => <option key={t} value={t}>{t}</option>)}
+                </select>
+              )}
+              {options.parallels.length > 0 && (
+                <select value={parallelFilter} onChange={(e) => setParallelFilter(e.target.value)} className="rounded-xl border border-[rgba(0,0,0,0.1)] bg-white px-3 py-2 text-sm text-zinc-700 outline-none">
+                  <option value="all">All parallels</option>
+                  {options.parallels.map((p) => <option key={p} value={p}>{p}</option>)}
+                </select>
+              )}
+            </div>
+          )}
         </div>
       </section>
 
-      {/* ══ SEARCH + FILTERS ════════════════════════════════════════════ */}
-      <div className="animate-fade-up space-y-3" style={{ animationDelay: "60ms" }}>
-        <div className="flex flex-col gap-2 sm:flex-row sm:gap-3">
-          <div className="relative flex-1">
-            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400">🔍</span>
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search player, team, set..."
-              className="w-full rounded-2xl border border-[rgba(0,0,0,0.1)] bg-white py-3.5 pl-10 pr-4 text-sm text-zinc-800 outline-none placeholder:text-zinc-400 transition focus:border-[rgba(200,155,60,0.4)]"
-            />
-          </div>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setShowFilters((v: boolean) => !v)}
-              className={`flex-1 rounded-2xl border px-4 py-3.5 text-sm font-semibold transition sm:flex-none sm:px-5 ${showFilters ? "border-[rgba(200,155,60,0.3)] bg-[rgba(200,155,60,0.08)] text-[#92400e]" : "border-[rgba(0,0,0,0.1)] bg-white text-zinc-600 hover:text-zinc-900"}`}
-            >
-              Filters {showFilters ? "↑" : "↓"}
-            </button>
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as SortOption)}
-              className="flex-1 rounded-2xl border border-[rgba(0,0,0,0.1)] bg-white px-3 py-3.5 text-sm text-zinc-700 outline-none sm:flex-none sm:px-4"
-            >
-              <option value="cardNumber">Card #</option>
-              <option value="playerName">Player</option>
-              <option value="priceLow">Price ↑</option>
-              <option value="priceHigh">Price ↓</option>
-            </select>
-          </div>
-        </div>
-
-        {showFilters && (
-          <div className="animate-fade-up grid gap-3 rounded-2xl border border-[rgba(0,0,0,0.08)] bg-white p-4 sm:grid-cols-2">
-            <select value={setFilter} onChange={(e) => { setSetFilter(e.target.value); setTeamFilter("all"); setParallelFilter("all"); }} className="rounded-xl border border-[rgba(0,0,0,0.1)] bg-[#fafaf9] px-3 py-2.5 text-sm text-zinc-700 outline-none">
-              <option value="all">All sets</option>
-              {options.sets.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
-            {options.teams.length > 0 && (
-              <select value={teamFilter} onChange={(e) => setTeamFilter(e.target.value)} className="rounded-xl border border-[rgba(0,0,0,0.1)] bg-[#fafaf9] px-3 py-2.5 text-sm text-zinc-700 outline-none">
-                <option value="all">All teams</option>
-                {options.teams.map((t) => <option key={t} value={t}>{t}</option>)}
-              </select>
-            )}
-            {options.parallels.length > 0 && (
-              <select value={parallelFilter} onChange={(e) => setParallelFilter(e.target.value)} className="rounded-xl border border-[rgba(0,0,0,0.1)] bg-[#fafaf9] px-3 py-2.5 text-sm text-zinc-700 outline-none">
-                <option value="all">All parallels</option>
-                {options.parallels.map((p) => <option key={p} value={p}>{p}</option>)}
-              </select>
-            )}
-          </div>
-        )}
-      </div>
+      {/* ══ SEARCH + FILTERS — removed, now in hero ═════════════════════ */}
 
       {/* ══ LOADING ═════════════════════════════════════════════════════ */}
       {isLoading && (
@@ -303,7 +352,7 @@ export function CatalogueGrid() {
 
       {/* ══ CARD GRID ═══════════════════════════════════════════════════ */}
       {!isLoading && !loadError && visibleCards.length > 0 && (
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 stagger-grid">
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 stagger-grid">
           {visibleCards.map((card) => {
             const inCartQty = cart.getItemQuantity(card.id);
             const hasStockCap = typeof card.availableQuantity === "number";
@@ -409,6 +458,19 @@ export function CatalogueGrid() {
             );
           })}
         </div>
+      )}
+
+      {/* Infinite scroll sentinel */}
+      <div ref={sentinelRef} className="h-1" />
+      {loadingMore && (
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="skeleton h-80 rounded-2xl" />
+          ))}
+        </div>
+      )}
+      {!hasMore && !isLoading && cards.length > 0 && (
+        <p className="py-6 text-center text-[12px] text-zinc-400">All {cards.length} cards loaded</p>
       )}
     </div>
   );
