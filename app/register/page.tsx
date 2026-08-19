@@ -15,6 +15,7 @@ export default function RegisterPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -24,6 +25,7 @@ export default function RegisterPage() {
     if (username.trim().length < 3) { setError("Username must be at least 3 characters."); return; }
     if (password !== confirmPassword) { setError("Passwords do not match."); return; }
     if (password.length < 6) { setError("Password must be at least 6 characters."); return; }
+    if (!agreedToTerms) { setError("You must agree to the Terms & Conditions to create an account."); return; }
 
     setLoading(true);
     const { error } = await signUp(email, password, username.trim());
@@ -95,7 +97,23 @@ export default function RegisterPage() {
               </div>
             )}
 
-            <button type="submit" disabled={loading} className="btn-gold mt-2 w-full rounded-xl py-3 text-sm font-bold disabled:opacity-50">
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={agreedToTerms}
+                onChange={e => setAgreedToTerms(e.target.checked)}
+                className="mt-0.5 h-4 w-4 shrink-0 accent-amber-500"
+              />
+              <span className="text-[12px] text-[rgba(255,255,255,0.5)] leading-relaxed">
+                I have read and agree to the{" "}
+                <a href="/terms" target="_blank" className="text-[#c89b3c] hover:underline">Terms &amp; Conditions</a>
+                {" "}and{" "}
+                <a href="/returns" target="_blank" className="text-[#c89b3c] hover:underline">Returns Policy</a>.
+                I understand that by uploading images to the community binder I grant Collectra a licence to use those images on the platform.
+              </span>
+            </label>
+
+            <button type="submit" disabled={loading || !agreedToTerms} className="btn-gold mt-2 w-full rounded-xl py-3 text-sm font-bold disabled:opacity-50">
               {loading ? "Creating..." : "Create account"}
             </button>
           </form>

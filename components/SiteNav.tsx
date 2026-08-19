@@ -174,6 +174,10 @@ export function SiteNav() {
                     </Link>
                   )}
                 </div>
+                <div className="border-t border-[rgba(0,0,0,0.06)] p-1.5 flex gap-1">
+                  <Link href="/terms" onClick={() => setMenuOpen(false)} className="flex-1 rounded-xl px-3 py-2 text-center text-[11px] text-zinc-400 hover:bg-[rgba(0,0,0,0.04)] hover:text-zinc-600 transition-colors">Terms</Link>
+                  <Link href="/returns" onClick={() => setMenuOpen(false)} className="flex-1 rounded-xl px-3 py-2 text-center text-[11px] text-zinc-400 hover:bg-[rgba(0,0,0,0.04)] hover:text-zinc-600 transition-colors">Returns</Link>
+                </div>
               </div>
             )}
           </div>
@@ -231,6 +235,12 @@ export function SiteNav() {
               ? <button onClick={() => signOut()} className="rounded-full px-3.5 py-2 text-left text-[13px] font-medium text-rose-600">Sign out</button>
               : <Link href="/login" className={linkClass(false)} onClick={() => setMobileOpen(false)}>Sign in</Link>
             }
+            <div className="my-2 h-px bg-[rgba(0,0,0,0.06)]" />
+            <div className="flex gap-2 px-1">
+              <Link href="/terms" onClick={() => setMobileOpen(false)} className="text-[11px] text-zinc-400 hover:text-zinc-600">Terms &amp; Conditions</Link>
+              <span className="text-zinc-300">·</span>
+              <Link href="/returns" onClick={() => setMobileOpen(false)} className="text-[11px] text-zinc-400 hover:text-zinc-600">Returns Policy</Link>
+            </div>
           </div>
         </div>
       )}

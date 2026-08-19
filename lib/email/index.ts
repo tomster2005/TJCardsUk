@@ -2,7 +2,7 @@ import { Resend } from "resend";
 import { formatGBP } from "@/lib/currency";
 
 const FROM = "Collectra <orders@collectrauk.co.uk>";
-const ADMIN_EMAIL = "tjvaluetips@gmail.com";
+const ADMIN_EMAIL = "collectrauk@gmail.com";
 
 type OrderItem = { playerName: string; quantity: number; price?: number };
 type ShippingDetails = {
@@ -40,7 +40,7 @@ function baseTemplate(content: string) {
           ${content}
         </div>
         <div style="padding:24px 40px;background:#faf8f4;border-top:1px solid #f0ede6;text-align:center;">
-          <p style="margin:0;font-size:12px;color:#9ca3af;">© Collectra · TJ Cards UK</p>
+          <p style="margin:0;font-size:12px;color:#9ca3af;">© Collectra</p>
         </div>
       </div>
     </body>

@@ -394,6 +394,9 @@ export default function CartPage() {
                         <span>🇬🇧</span>
                         <span>UK delivery only · Prices in GBP</span>
                       </div>
+                      <div className="pt-1 border-t" style={{ borderColor: "rgba(200,155,60,0.15)" }}>
+                        <Link href="/terms" className="text-[11px] text-zinc-400 hover:text-zinc-600 underline underline-offset-2">Trader &amp; legal information</Link>
+                      </div>
                     </div>
                   </div>
                 </div>
