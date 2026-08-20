@@ -23,7 +23,7 @@ export default function TermsPage() {
             <p>Collectra (&quot;we&quot;, &quot;us&quot;, &quot;our&quot;) is a trading card marketplace and collector platform.</p>
             <div className="mt-3 rounded-xl border border-[rgba(200,155,60,0.2)] bg-[rgba(200,155,60,0.05)] px-4 py-3 text-[rgba(255,255,255,0.6)]">
               <p><strong className="text-white">Collectra</strong></p>
-              <p className="mt-1">Business address: 311 Warwick Road, Banbury</p>
+              <p className="mt-1">61 Bridge Street, Kington, HR5 3DJ, United Kingdom</p>
               <p className="mt-1">Email: <span className="text-[#c89b3c]">support@collectrauk.co.uk</span></p>
             </div>
             <p className="mt-3">By creating an account or using our platform you agree to these Terms &amp; Conditions in full. If you do not agree, you must not use the platform. Nothing in these Terms affects your statutory rights as a consumer.</p>
@@ -150,7 +150,7 @@ export default function TermsPage() {
             <p>If you have any questions, complaints, or wish to exercise any rights under these terms, please contact us:</p>
             <div className="mt-3 rounded-xl border border-[rgba(200,155,60,0.2)] bg-[rgba(200,155,60,0.05)] px-4 py-3 text-[rgba(255,255,255,0.6)]">
               <p><strong className="text-white">Collectra</strong></p>
-              <p className="mt-1">Business address: 311 Warwick Road, Banbury</p>
+              <p className="mt-1">61 Bridge Street, Kington, HR5 3DJ, United Kingdom</p>
               <p className="mt-1">Email: <span className="text-[#c89b3c]">support@collectrauk.co.uk</span></p>
               <p className="mt-1 text-xs text-[rgba(255,255,255,0.4)]">We aim to respond to all enquiries within 2 working days.</p>
             </div>
