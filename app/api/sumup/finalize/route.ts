@@ -93,6 +93,18 @@ export async function POST(request: NextRequest) {
 
   const supabase = createServiceSupabase();
 
+  // Prevent replay — check if this checkoutId has already been processed
+  const { data: existingOrder } = await supabase
+    .from("orders")
+    .select("id")
+    .eq("sumup_checkout_id", checkoutId)
+    .limit(1)
+    .single();
+
+  if (existingOrder) {
+    return NextResponse.json({ paid: true, status: paymentStatus, alreadyProcessed: true, items: [] });
+  }
+
   // Update stock server-side using FIFO card_copies
   const failed: string[] = [];
   const itemsWithPrices: CartItem[] = [];

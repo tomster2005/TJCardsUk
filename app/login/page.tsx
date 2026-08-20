@@ -4,8 +4,20 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 
 export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginForm() {
+  const searchParams = useSearchParams();
+  const wasReset = searchParams.get("reset") === "1";
   const { signIn, fetchRole } = useAuth();
   const router = useRouter();
   const [emailOrUsername, setEmailOrUsername] = useState("");
@@ -122,7 +134,12 @@ export default function LoginPage() {
               <p className="mt-1 text-[13px] text-[rgba(255,255,255,0.4)]">Access your vault</p>
             </div>
 
-            <form onSubmit={submit} className="space-y-4">
+              {wasReset && (
+                <div className="rounded-xl px-4 py-3 text-[13px] text-emerald-300 mb-4" style={{ background: "rgba(16,185,129,0.1)", border: "1px solid rgba(16,185,129,0.2)" }}>
+                  Password updated successfully. Sign in with your new password.
+                </div>
+              )}
+              <form onSubmit={submit} className="space-y-4">
               <label className="block">
                 <span className="text-[11px] font-bold uppercase tracking-[0.15em] text-[rgba(255,255,255,0.4)]">Email or Username</span>
                 <input
@@ -148,6 +165,9 @@ export default function LoginPage() {
                   style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)" }}
                   placeholder="••••••••"
                 />
+                <div className="mt-1.5 text-right">
+                  <Link href="/forgot-password" className="text-[11px] text-[rgba(255,255,255,0.3)] hover:text-[#c89b3c] transition">Forgot password?</Link>
+                </div>
               </label>
 
               {error && (

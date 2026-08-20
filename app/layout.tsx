@@ -23,8 +23,31 @@ const playfair = Playfair_Display({
 });
 
 export const metadata: Metadata = {
-  title: "Collectra",
-  description: "A collector-first platform for managing trading card collections.",
+  title: "Collectra — The Vault",
+  description: "Premium trading cards — Football, Disney and more. Browse, buy and track your collection all in one place.",
+  metadataBase: new URL("https://collectra.com"),
+  openGraph: {
+    title: "Collectra — The Vault",
+    description: "Premium trading cards — Football, Disney and more. Browse, buy and track your collection all in one place.",
+    url: "https://collectra.com",
+    siteName: "Collectra",
+    locale: "en_GB",
+    type: "website",
+    images: [
+      {
+        url: "/og-image.png",
+        width: 1200,
+        height: 630,
+        alt: "Collectra — The Vault",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Collectra — The Vault",
+    description: "Premium trading cards — Football, Disney and more.",
+    images: ["/og-image.png"],
+  },
 };
 
 export const viewport = {

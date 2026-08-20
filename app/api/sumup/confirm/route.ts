@@ -15,6 +15,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Too many requests. Please try again shortly." }, { status: 429 });
   }
 
+  // Only allow requests from the same origin
+  const origin = request.headers.get("origin");
+  const host = request.headers.get("host");
+  if (origin && host && !origin.includes(host)) {
+    return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+  }
+
   const token = process.env.SUMUP_API_KEY?.trim();
   if (!token) {
     return NextResponse.json({ error: "Missing SUMUP_API_KEY." }, { status: 500 });

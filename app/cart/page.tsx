@@ -6,6 +6,7 @@ import { Layout } from "@/components/Layout";
 import { EmptyState } from "@/components/EmptyState";
 import { useCart } from "@/contexts/CartContext";
 import { formatGBP } from "@/lib/currency";
+import getBrowserSupabase from "@/lib/supabase/client";
 
 type ShippingDetails = {
   fullName: string;
@@ -135,6 +136,29 @@ export default function CartPage() {
 
     setIsStartingCheckout(true);
     setCheckoutError(null);
+
+    // Validate live stock before hitting SumUp
+    const supabase = getBrowserSupabase();
+    if (supabase) {
+      const { data: liveCards } = await supabase
+        .from("cards")
+        .select("id, stock, title, player")
+        .in("id", items.map(i => i.cardId));
+
+      const outOfStock: string[] = [];
+      for (const item of items) {
+        const live = liveCards?.find((c: any) => c.id === item.cardId);
+        if (!live || live.stock < item.quantity) {
+          outOfStock.push(item.playerName);
+        }
+      }
+
+      if (outOfStock.length > 0) {
+        setCheckoutError(`Sorry, the following ${outOfStock.length === 1 ? "card is" : "cards are"} no longer available in the quantity requested: ${outOfStock.join(", ")}. Please update your cart.`);
+        setIsStartingCheckout(false);
+        return;
+      }
+    }
 
     const response = await fetch("/api/sumup/checkout", {
       method: "POST",

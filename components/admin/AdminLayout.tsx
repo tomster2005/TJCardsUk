@@ -31,6 +31,8 @@ const adminNavGroups = [
     key: "database",
     items: [
       { href: "/admin/sets", label: "Sets" },
+      { href: "/admin/players", label: "Players" },
+      { href: "/admin/teams", label: "Teams" },
     ],
   },
   {
