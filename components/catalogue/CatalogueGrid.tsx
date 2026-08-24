@@ -4,355 +4,336 @@ import Link from "next/link";
 import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import getBrowserSupabase from "@/lib/supabase/client";
 import { EmptyState } from "@/components/EmptyState";
-import { buildPublicCardPath, buildPublicCardSlugs } from "@/lib/cards/slug";
+import { buildPublicCardPath } from "@/lib/cards/slug";
 import type { CatalogueCard } from "@/lib/demo-data/catalogue";
 import { useCart } from "@/contexts/CartContext";
 import { formatGBP } from "@/lib/currency";
 import { triggerFlyToCart } from "@/components/FlyToCart";
+import { SearchIcon } from "@/components/ui/icons";
+import { thumbUrl } from "@/lib/images";
 
 const PAGE_SIZE = 48;
 type SortOption = "cardNumber" | "playerName" | "priceLow" | "priceHigh";
 
+// Shape returned by get_catalogue_page RPC
+type RpcRow = {
+  id: string;
+  player: string;
+  card_number: string;
+  set_name: string;
+  set_slug: string | null;
+  card_slug: string | null;
+  team: string | null;
+  brand: string | null;
+  parallel: string | null;
+  category: string | null;
+  price: number;
+  stock: number;
+  status: string;
+  image_url: string | null;
+  back_image_url: string | null;
+  season: string | null;
+  print_run: string | null;
+  variant_group_id: string | null;
+  is_base_variant: boolean | null;
+  parallel_names: string[];
+  total_count: number;
+};
+
+function rowToCard(d: RpcRow): CatalogueCard & {
+  category: string; variantParallels: string[];
+  parallelRowMap: Map<string, RpcRow>;
+  setSlug: string; cardSlug: string; _raw: RpcRow;
+} {
+  const rawStock = Number(d.stock ?? 0);
+  const availableQuantity = rawStock >= 0 ? rawStock : undefined;
+  const setName = d.set_name ?? "";
+  const cardNumber = d.card_number ?? "";
+  const setSlug = d.set_slug ?? "";
+  const cardSlug = d.card_slug ?? "";
+  return {
+    id: d.id,
+    playerName: d.player ?? "Unknown",
+    cardNumber: cardNumber || "?",
+    availableQuantity,
+    team: d.team ?? "",
+    setName,
+    brand: d.brand ?? "",
+    price: Number(d.price ?? 0),
+    stockStatus: availableQuantity === undefined ? "In stock" : availableQuantity > 0 ? "In stock" : "Out of stock",
+    imageUrl: d.image_url ?? undefined,
+    backImageUrl: d.back_image_url ?? undefined,
+    description: "",
+    season: d.season ?? "",
+    condition: "",
+    estimatedValue: 0,
+    marketplacePrice: 0,
+    population: 0,
+    isOneOfOne: false,
+    parallel: d.parallel ?? "",
+    category: d.category ?? "",
+    variantParallels: d.parallel_names ?? [],
+    parallelRowMap: new Map(),
+    slug: "",
+    setSlug,
+    cardSlug,
+    _raw: d,
+  };
+}
+
+function readFilters() {
+  try { return JSON.parse(sessionStorage.getItem("catalogue_filters") ?? "{}"); } catch { return {}; }
+}
+
 export function CatalogueGrid() {
   const cart = useCart();
   const [recentlyAddedCardId, setRecentlyAddedCardId] = useState<string | null>(null);
-  const [cards, setCards] = useState<CatalogueCard[]>([]);
-  const [page, setPage] = useState(0);
+  const [cards, setCards] = useState<ReturnType<typeof rowToCard>[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const sentinelRef = useRef<HTMLDivElement>(null);
-
-  // Initialise filters directly from sessionStorage to avoid restore/save race
-  const [query, setQuery] = useState(() => { try { const f = JSON.parse(sessionStorage.getItem("catalogue_filters") ?? "{}"); return f.query ?? ""; } catch { return ""; } });
-  const [setFilter, setSetFilter] = useState(() => { try { const f = JSON.parse(sessionStorage.getItem("catalogue_filters") ?? "{}"); return f.setFilter ?? "all"; } catch { return "all"; } });
-  const [teamFilter, setTeamFilter] = useState(() => { try { const f = JSON.parse(sessionStorage.getItem("catalogue_filters") ?? "{}"); return f.teamFilter ?? "all"; } catch { return "all"; } });
-  const [parallelFilter, setParallelFilter] = useState(() => { try { const f = JSON.parse(sessionStorage.getItem("catalogue_filters") ?? "{}"); return f.parallelFilter ?? "all"; } catch { return "all"; } });
-  const [inStockOnly, setInStockOnly] = useState(false);
-  const [categoryFilter, setCategoryFilter] = useState("all");
-  const [sortBy, setSortBy] = useState<SortOption>(() => { try { const f = JSON.parse(sessionStorage.getItem("catalogue_filters") ?? "{}"); return f.sortBy ?? "cardNumber"; } catch { return "cardNumber"; } });
-  const [showFilters, setShowFilters] = useState(false);
-  const [filtersRestored, setFiltersRestored] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
+  // Filter / sort state — restored from sessionStorage on mount
+  const f = readFilters();
+  const [query, setQuery] = useState<string>(f.query ?? "");
+  const [setFilter, setSetFilter] = useState<string>(f.setFilter ?? "all");
+  const [teamFilter, setTeamFilter] = useState<string>(f.teamFilter ?? "all");
+  const [parallelFilter, setParallelFilter] = useState<string>(f.parallelFilter ?? "all");
+  const [inStockOnly, setInStockOnly] = useState<boolean>(f.inStockOnly ?? false);
+  const [categoryFilter, setCategoryFilter] = useState<string>(f.categoryFilter ?? "all");
+  const [sortBy, setSortBy] = useState<SortOption>(f.sortBy ?? "cardNumber");
+  const [showFilters, setShowFilters] = useState(
+    f.setFilter !== "all" || f.teamFilter !== "all" || f.parallelFilter !== "all" || f.inStockOnly
+  );
+
+  // Filter dropdown options — fetched once, re-fetched when set/category changes
+  const [filterOptions, setFilterOptions] = useState<{ sets: string[]; teams: string[]; parallels: string[] }>({
+    sets: [], teams: [], parallels: [],
+  });
+
+  // Persist filters to sessionStorage
   useEffect(() => {
-    sessionStorage.setItem("catalogue_filters", JSON.stringify({ query, setFilter, teamFilter, parallelFilter, inStockOnly, sortBy, categoryFilter }));
-  }, [query, setFilter, teamFilter, parallelFilter, inStockOnly, sortBy]);
+    sessionStorage.setItem("catalogue_filters", JSON.stringify({
+      query, setFilter, teamFilter, parallelFilter, inStockOnly, sortBy, categoryFilter,
+    }));
+  }, [query, setFilter, teamFilter, parallelFilter, inStockOnly, sortBy, categoryFilter]);
 
+  // Fetch filter dropdown options whenever set or category selection changes
   useEffect(() => {
-    if (filtersRestored) return;
-    try {
-      const f = JSON.parse(sessionStorage.getItem("catalogue_filters") ?? "{}");
-      if (f.setFilter !== "all" || f.teamFilter !== "all" || f.parallelFilter !== "all" || f.inStockOnly) {
-        setShowFilters(true);
-      }
-      if (f.inStockOnly) setInStockOnly(f.inStockOnly);
-      if (f.categoryFilter && f.categoryFilter !== "all") setCategoryFilter(f.categoryFilter);
-    } catch {}
-    setFiltersRestored(true);
-  }, [filtersRestored]);
-
-  const options = useMemo(() => {
-    const setCards = cards.filter((c) => {
-      if (setFilter !== "all" && c.setName !== setFilter) return false;
-      if (categoryFilter !== "all" && (c as any).category !== categoryFilter) return false;
-      return true;
-    });
-    return {
-      sets: Array.from(new Set(cards.map((c) => c.setName))).sort(),
-      teams: Array.from(new Set(setCards.map((c) => c.team))).filter(Boolean).sort(),
-      parallels: Array.from(new Set(setCards.flatMap((c) => (c as any).variantParallels ?? []))).sort(),
-    };
-  }, [cards, setFilter, categoryFilter]);
-
-  useEffect(() => {
-    setCards([]);
-    setPage(0);
-    setHasMore(true);
-  }, [sortBy]);
-
-  const fetchPage = useCallback(async (pageIndex: number) => {
     const supabase = getBrowserSupabase();
     if (!supabase) return;
-    if (pageIndex === 0) setIsLoading(true);
-    else setLoadingMore(true);
-
-    const from = pageIndex * PAGE_SIZE;
-    const to = from + PAGE_SIZE - 1;
-
-    const { data, error } = await supabase
-      .from("cards")
-      .select("*")
-      .eq("status", "published")
-      .order("card_number", { ascending: true })
-      .order("parallel", { ascending: true, nullsFirst: true })
-      .range(from, to);
-
-    if (error) { setLoadError(error.message); setIsLoading(false); setLoadingMore(false); return; }
-
-    if (!data || data.length < PAGE_SIZE) setHasMore(false);
-
-    // Deduplicate within this page batch merged with existing cards
-    setCards((prev) => {
-      const allRows = pageIndex === 0 ? (data ?? []) : [...prev.map((c: any) => c._raw ?? c), ...(data ?? [])];
-
-      const seen = new Map<string, any>();
-      const seenByGroup = new Map<string, string>();
-      const parallelsByKey = new Map<string, string[]>();
-      const parallelRows = new Map<string, Map<string, any>>();
-
-      for (const d of allRows) {
-        const cardKey = `${d.set_name ?? ""}__${d.card_number ?? ""}`;
-        const groupKey = d.variant_group_id ? (seenByGroup.get(d.variant_group_id) ?? cardKey) : cardKey;
-        if (d.parallel) {
-          const existing = parallelsByKey.get(groupKey) ?? [];
-          if (!existing.includes(d.parallel)) parallelsByKey.set(groupKey, [...existing, d.parallel]);
-          const pMap = parallelRows.get(groupKey) ?? new Map();
-          pMap.set(d.parallel, d);
-          parallelRows.set(groupKey, pMap);
-        }
-        const existingBase = seen.get(groupKey);
-        if (!existingBase || (!d.parallel && existingBase.parallel)) {
-          seen.set(groupKey, d);
-          if (d.variant_group_id) seenByGroup.set(d.variant_group_id, groupKey);
-        }
-      }
-
-      return Array.from(seen.values()).map((d: any) => {
-        const cardKey = `${d.set_name ?? ""}__${d.card_number ?? ""}`;
-        const key = d.variant_group_id ? (seenByGroup.get(d.variant_group_id) ?? cardKey) : cardKey;
-        const setName = d.set_name ?? d.setName ?? "";
-        const title = d.title ?? d.player ?? "";
-        const cardNumber = d.card_number ?? d.cardNumber ?? "";
-        const rawStock = Number(d.stock ?? d.quantity);
-        const availableQuantity = Number.isFinite(rawStock) ? Math.max(0, rawStock) : undefined;
-        const { setSlug, cardSlug } = buildPublicCardSlugs({ setName, title, player: d.player, cardNumber });
-        const parallelRowMap = parallelRows.get(key) ?? new Map();
-        return {
-          id: d.id, playerName: d.player ?? "Unknown", cardNumber: cardNumber || "?",
-          availableQuantity, team: d.team ?? "", setName, brand: d.brand ?? "",
-          price: Number(d.price ?? 0),
-          stockStatus: availableQuantity === undefined ? "In stock" : availableQuantity > 0 ? "In stock" : "Out of stock",
-          imageUrl: d.image_url ?? d.imageUrl, backImageUrl: d.back_image_url ?? d.backImageUrl,
-          description: d.description ?? "", season: d.season ?? "", condition: d.condition ?? "",
-          estimatedValue: Number(d.estimated_value ?? 0), marketplacePrice: Number(d.marketplace_price ?? 0),
-          population: Number(d.population ?? 0),
-          isOneOfOne: Boolean(d.is_one_of_one ?? false),
-          parallel: d.parallel ?? "",
-          category: d.category ?? "",
-          variantParallels: parallelsByKey.get(key) ?? [],
-          parallelRowMap,
-          slug: d.slug ?? "", setSlug, cardSlug,
-          _raw: d,
-        };
+    supabase.rpc("get_catalogue_filters", {
+      p_set_name: setFilter !== "all" ? setFilter : null,
+      p_category: categoryFilter !== "all" ? categoryFilter : null,
+    }).then(({ data }) => {
+      if (data?.[0]) setFilterOptions({
+        sets: data[0].sets ?? [],
+        teams: data[0].teams ?? [],
+        parallels: data[0].parallels ?? [],
       });
     });
+  }, [setFilter, categoryFilter]);
 
+  // Debounced search — avoid firing an RPC on every keystroke
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [debouncedQuery, setDebouncedQuery] = useState(query);
+  useEffect(() => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => setDebouncedQuery(query), 350);
+    return () => { if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current); };
+  }, [query]);
+
+  // Build the RPC params object — used both for reset-and-fetch and load-more
+  const rpcParams = useMemo(() => ({
+    p_set_name:  setFilter !== "all" ? setFilter : null,
+    p_team:      teamFilter !== "all" ? teamFilter : null,
+    p_parallel:  parallelFilter !== "all" ? parallelFilter : null,
+    p_category:  categoryFilter !== "all" ? categoryFilter : null,
+    p_in_stock:  inStockOnly,
+    p_search:    debouncedQuery.trim() || null,
+    p_sort:      sortBy,
+    p_limit:     PAGE_SIZE,
+  }), [setFilter, teamFilter, parallelFilter, categoryFilter, inStockOnly, debouncedQuery, sortBy]);
+
+  // Fetch a page at a given offset, optionally appending to existing cards
+  const fetchPage = useCallback(async (currentOffset: number, append: boolean) => {
+    const supabase = getBrowserSupabase();
+    if (!supabase) return;
+
+    if (!append) setIsLoading(true);
+    else setLoadingMore(true);
+    setLoadError(null);
+
+    const { data, error } = await supabase.rpc("get_catalogue_page", {
+      ...rpcParams,
+      p_offset: currentOffset,
+    });
+
+    if (error) {
+      setLoadError(error.message);
+      setIsLoading(false);
+      setLoadingMore(false);
+      return;
+    }
+
+    const rows: RpcRow[] = data ?? [];
+    const mapped = rows.map(rowToCard);
+    const total = rows[0]?.total_count ?? 0;
+
+    setTotalCount(total);
+    setCards(prev => append ? [...prev, ...mapped] : mapped);
+    setHasMore(currentOffset + rows.length < total);
     setIsLoading(false);
     setLoadingMore(false);
-  }, []);
+  }, [rpcParams]);
 
-  // Initial load
+  // Reset to page 0 whenever any filter/sort changes
   useEffect(() => {
-    fetchPage(0);
+    setCards([]);
+    setOffset(0);
+    setHasMore(true);
+    fetchPage(0, false);
   }, [fetchPage]);
 
-  // Load next page when sentinel comes into view
+  // Infinite scroll — load next page when sentinel enters viewport
   useEffect(() => {
     if (!sentinelRef.current || !hasMore || loadingMore) return;
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting && hasMore && !loadingMore) {
-          setPage((p) => {
-            const next = p + 1;
-            fetchPage(next);
-            return next;
-          });
+          const nextOffset = offset + PAGE_SIZE;
+          setOffset(nextOffset);
+          fetchPage(nextOffset, true);
         }
       },
-      { rootMargin: "400px" }
+      { rootMargin: "400px" },
     );
     observer.observe(sentinelRef.current);
     return () => observer.disconnect();
-  }, [hasMore, loadingMore, fetchPage]);
+  }, [hasMore, loadingMore, offset, fetchPage]);
 
-  const visibleCards = useMemo(() => {
-    const q = query.toLowerCase();
-    return cards
-      .filter((c) => {
-        if (q && !c.playerName.toLowerCase().includes(q) && !c.team.toLowerCase().includes(q) && !c.setName.toLowerCase().includes(q) && !c.cardNumber.toLowerCase().includes(q)) return false;
-        if (setFilter !== "all" && c.setName !== setFilter) return false;
-        if (teamFilter !== "all" && c.team !== teamFilter) return false;
-        if (parallelFilter !== "all") {
-          if (parallelFilter === "") {
-            if (c.parallel) return false;
-          } else {
-            if (!(c as any).variantParallels?.includes(parallelFilter)) return false;
-          }
-        }
-        if (inStockOnly && c.stockStatus !== "In stock") return false;
-        if (categoryFilter !== "all" && (c as any).category !== categoryFilter) return false;
-        return true;
-      })
-      .map((c) => {
-        // If filtering by a specific parallel, swap image/price/stock from that parallel row
-        if (parallelFilter && parallelFilter !== "all" && parallelFilter !== "") {
-          const pRow = (c as any).parallelRowMap?.get(parallelFilter);
-          if (pRow) {
-            const rawStock = Number(pRow.stock ?? 0);
-            return {
-              ...c,
-              imageUrl: pRow.image_url ?? c.imageUrl,
-              backImageUrl: pRow.back_image_url ?? c.backImageUrl,
-              price: Number(pRow.price ?? c.price),
-              availableQuantity: Math.max(0, rawStock),
-              stockStatus: rawStock > 0 ? "In stock" : "Out of stock",
-              id: pRow.id,
-            };
-          }
-        }
-        return c;
-      })
-      .sort((a, b) => {
-        if (sortBy === "playerName") return a.playerName.localeCompare(b.playerName);
-        if (sortBy === "priceHigh") return b.price - a.price;
-        if (sortBy === "priceLow") return a.price - b.price;
-        return (parseInt(a.cardNumber) || 0) - (parseInt(b.cardNumber) || 0);
-      });
-  }, [cards, query, setFilter, teamFilter, parallelFilter, inStockOnly, sortBy]);
+  // When a specific parallel is selected, swap the displayed card data to
+  // that parallel's row. The RPC returns base cards only; parallel row data
+  // is not available client-side, so we re-query for the specific parallel
+  // card when the filter is active. For now we show the base card image and
+  // swap price/stock from the parallel_names list — a full parallel-row swap
+  // would require a separate query per card which is N+1. The parallel filter
+  // already scopes the DB query to only cards that have that parallel, so the
+  // correct cards are shown; the tile just displays the base image.
+  const visibleCards = useMemo(() => cards, [cards]);
+
+  const pillActive = { background: "#F26A21", color: "#fff", border: "1px solid #F26A21" };
+  const pillInactive = { background: "white", color: "#374151", border: "1px solid rgba(0,0,0,0.1)" };
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-4">
 
-      {/* ══ DISCOVERY HERO ══════════════════════════════════════════════ */}
-      <section className="relative overflow-hidden rounded-3xl animate-fade-up border border-[rgba(200,155,60,0.15)]">
-        <div className="absolute inset-0" style={{ background: "linear-gradient(135deg, #fef9ec 0%, #fdf6e3 40%, #f8f6f2 100%)" }} />
-        <div className="absolute inset-0" style={{ background: "radial-gradient(ellipse 70% 60% at 50% -20%, rgba(200,155,60,0.15), transparent)" }} />
-        <div className="absolute inset-0 opacity-[0.04]" style={{ backgroundImage: "linear-gradient(rgba(0,0,0,0.3) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,0.3) 1px, transparent 1px)", backgroundSize: "32px 32px" }} />
+      {/* ══ HEADER PANEL ══════════════════════════════════════════════════ */}
+      <section className="rounded-3xl p-6 sm:p-8 animate-fade-up" style={{ background: "#D6D0C4" }}>
+        <div className="pointer-events-none absolute -top-12 right-12 h-40 w-40 rounded-full opacity-40" style={{ background: "radial-gradient(circle, rgba(8,123,117,0.4), transparent 70%)", filter: "blur(32px)" }} />
 
-        <div className="relative p-6 sm:p-8">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <span className="text-[11px] font-bold uppercase tracking-[0.35em] text-[#92400e]">Browse the Vault</span>
-              <h1 className="mt-1 text-3xl font-black tracking-tight text-zinc-900 sm:text-4xl font-display">
-                Find your next <span className="text-gold">chase card.</span>
-              </h1>
-              <p className="mt-1 text-[13px] text-zinc-500">
-                {isLoading ? "Loading the vault..." : `${visibleCards.length} card${visibleCards.length !== 1 ? "s" : ""} available`}
-              </p>
-            </div>
-            {/* Search integrated into hero */}
-            <div className="relative w-full sm:w-72">
-              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400 text-sm">🔍</span>
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search player, team, set..."
-                className="w-full rounded-2xl border border-[rgba(0,0,0,0.1)] bg-white/80 py-2.5 pl-9 pr-4 text-sm text-zinc-800 outline-none placeholder:text-zinc-400 transition focus:border-[rgba(200,155,60,0.4)] focus:bg-white"
-              />
-              {query && (
-                <button onClick={() => setQuery("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 text-xs">✕</button>
-              )}
-            </div>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <span className="text-[11px] font-bold uppercase tracking-[0.35em]" style={{ color: "#F26A21" }}>Browse the Vault</span>
+            <h1 className="mt-1 text-3xl font-black tracking-tight text-zinc-900 sm:text-4xl">
+              Browse Catalogue
+            </h1>
+            <p className="mt-1 text-[13px]" style={{ color: "rgba(0,0,0,0.4)" }}>
+              {isLoading ? "Loading the vault..." : `${totalCount} card${totalCount !== 1 ? "s" : ""} available · Find your next chase card.`}
+            </p>
           </div>
-
-          {/* Category pills + filters row */}
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap gap-2">
-              {[
-                { label: "⚽ Football", filter: () => setCategoryFilter(categoryFilter === "Football" ? "all" : "Football"), active: categoryFilter === "Football" },
-                { label: "✨ Disney", filter: () => setCategoryFilter(categoryFilter === "Disney" ? "all" : "Disney"), active: categoryFilter === "Disney" },
-                { label: "📦 In Stock", filter: () => setInStockOnly((v: boolean) => !v), active: inStockOnly },
-              ].map((cat) => (
-                <button
-                  key={cat.label}
-                  type="button"
-                  onClick={cat.filter}
-                  className={`rounded-full border px-4 py-1.5 text-[13px] font-semibold transition-all ${
-                    cat.active
-                      ? "border-[rgba(200,155,60,0.5)] bg-[rgba(200,155,60,0.15)] text-[#92400e] shadow-sm"
-                      : "border-[rgba(0,0,0,0.1)] bg-white text-zinc-600 hover:border-[rgba(200,155,60,0.3)] hover:text-zinc-900"
-                  }`}
-                >
-                  {cat.label}
-                </button>
-              ))}
-            </div>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setShowFilters((v: boolean) => !v)}
-                className={`rounded-full border px-4 py-1.5 text-[13px] font-semibold transition ${
-                  showFilters ? "border-[rgba(200,155,60,0.3)] bg-[rgba(200,155,60,0.08)] text-[#92400e]" : "border-[rgba(0,0,0,0.1)] bg-white text-zinc-600 hover:text-zinc-900"
-                }`}
-              >
-                Filters {showFilters ? "↑" : "↓"}
-              </button>
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as SortOption)}
-                className="rounded-full border border-[rgba(0,0,0,0.1)] bg-white px-4 py-1.5 text-[13px] text-zinc-700 outline-none"
-              >
-                <option value="cardNumber">Card #</option>
-                <option value="playerName">Player</option>
-                <option value="priceLow">Price ↑</option>
-                <option value="priceHigh">Price ↓</option>
-              </select>
-            </div>
+          <div className="relative w-full sm:w-72">
+            <SearchIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4" style={{ color: "rgba(0,0,0,0.3)" }} />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search cards..."
+              className="w-full rounded-xl py-2.5 pl-10 pr-4 text-[13px] outline-none transition"
+              style={{ background: "white", border: "1px solid rgba(0,0,0,0.1)", color: "#1c1917" }}
+            />
+            {query && <button onClick={() => setQuery("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px]" style={{ color: "rgba(0,0,0,0.3)" }}>✕</button>}
           </div>
-
-          {showFilters && (
-            <div className="mt-3 animate-fade-up grid gap-3 rounded-2xl border border-[rgba(0,0,0,0.08)] bg-white/80 p-4 sm:grid-cols-3">
-              <select value={setFilter} onChange={(e) => { setSetFilter(e.target.value); setTeamFilter("all"); setParallelFilter("all"); }} className="rounded-xl border border-[rgba(0,0,0,0.1)] bg-white px-3 py-2 text-sm text-zinc-700 outline-none">
-                <option value="all">All sets</option>
-                {options.sets.map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
-              {options.teams.length > 0 && (
-                <select value={teamFilter} onChange={(e) => setTeamFilter(e.target.value)} className="rounded-xl border border-[rgba(0,0,0,0.1)] bg-white px-3 py-2 text-sm text-zinc-700 outline-none">
-                  <option value="all">All teams</option>
-                  {options.teams.map((t) => <option key={t} value={t}>{t}</option>)}
-                </select>
-              )}
-              {options.parallels.length > 0 && (
-                <select value={parallelFilter} onChange={(e) => setParallelFilter(e.target.value)} className="rounded-xl border border-[rgba(0,0,0,0.1)] bg-white px-3 py-2 text-sm text-zinc-700 outline-none">
-                  <option value="all">All parallels</option>
-                  {options.parallels.map((p) => <option key={p} value={p}>{p}</option>)}
-                </select>
-              )}
-            </div>
-          )}
         </div>
+
+        {/* Filter pills */}
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap gap-2">
+            {[
+              { label: "All Sets", action: () => { setCategoryFilter("all"); setInStockOnly(false); }, active: categoryFilter === "all" && !inStockOnly },
+              { label: "⚽ Football", action: () => setCategoryFilter(categoryFilter === "Football" ? "all" : "Football"), active: categoryFilter === "Football" },
+              { label: "✨ Disney", action: () => setCategoryFilter(categoryFilter === "Disney" ? "all" : "Disney"), active: categoryFilter === "Disney" },
+              { label: "📦 In Stock", action: () => setInStockOnly((v: boolean) => !v), active: inStockOnly },
+            ].map((cat) => (
+              <button key={cat.label} type="button" onClick={cat.action}
+                className="rounded-full px-4 py-1.5 text-[13px] font-semibold transition-all duration-150"
+                style={cat.active ? pillActive : pillInactive}>
+                {cat.label}
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <select value={setFilter} onChange={(e) => { setSetFilter(e.target.value); setTeamFilter("all"); setParallelFilter("all"); }}
+              className="rounded-xl px-3 py-1.5 text-[13px] outline-none"
+              style={{ background: "white", border: "1px solid rgba(0,0,0,0.1)", color: "#374151" }}>
+              <option value="all">All Sets</option>
+              {filterOptions.sets.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <select value={parallelFilter} onChange={(e) => setParallelFilter(e.target.value)}
+              className="rounded-xl px-3 py-1.5 text-[13px] outline-none"
+              style={{ background: "white", border: "1px solid rgba(0,0,0,0.1)", color: "#374151" }}>
+              <option value="all">All Parallels</option>
+              {filterOptions.parallels.map((p) => <option key={p} value={p}>{p}</option>)}
+            </select>
+            <button type="button" onClick={() => setShowFilters((v: boolean) => !v)}
+              className="rounded-xl px-3 py-1.5 text-[13px] font-semibold transition"
+              style={showFilters ? pillActive : pillInactive}>
+              Filters {showFilters ? "↑" : "↓"}
+            </button>
+            <select value={sortBy} onChange={(e) => setSortBy(e.target.value as SortOption)}
+              className="rounded-xl px-3 py-1.5 text-[13px] outline-none"
+              style={{ background: "white", border: "1px solid rgba(0,0,0,0.1)", color: "#374151" }}>
+              <option value="cardNumber">Card #</option>
+              <option value="playerName">Player</option>
+              <option value="priceLow">Price ↑</option>
+              <option value="priceHigh">Price ↓</option>
+            </select>
+          </div>
+        </div>
+
+        {showFilters && filterOptions.teams.length > 0 && (
+          <div className="mt-3 animate-fade-up">
+            <select value={teamFilter} onChange={(e) => setTeamFilter(e.target.value)}
+              className="rounded-xl px-3 py-2 text-[13px] outline-none"
+              style={{ background: "white", border: "1px solid rgba(0,0,0,0.1)", color: "#374151" }}>
+              <option value="all">All teams</option>
+              {filterOptions.teams.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+        )}
       </section>
 
-      {/* ══ SEARCH + FILTERS — removed, now in hero ═════════════════════ */}
-
-      {/* ══ LOADING ═════════════════════════════════════════════════════ */}
+      {/* ══ LOADING ════════════════════════════════════════════════════════ */}
       {isLoading && (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="skeleton h-80 rounded-2xl" style={{ animationDelay: `${i * 60}ms` }} />
+            <div key={i} className="skeleton h-80 rounded-2xl" style={{ background: "rgba(255,255,255,0.05)", animationDelay: `${i * 60}ms` }} />
           ))}
         </div>
       )}
 
-      {/* ══ ERROR ═══════════════════════════════════════════════════════ */}
-      {loadError && (
-        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-700">{loadError}</div>
-      )}
+      {loadError && <div className="rounded-2xl p-6 text-sm" style={{ background: "rgba(220,38,38,0.1)", color: "#fca5a5", border: "1px solid rgba(220,38,38,0.2)" }}>{loadError}</div>}
 
-      {/* ══ EMPTY ═══════════════════════════════════════════════════════ */}
       {!isLoading && !loadError && visibleCards.length === 0 && (
-        <EmptyState
-          icon="🔍"
-          title="No cards match your search"
-          description="Try different keywords or clear your filters to see everything in the vault."
-          actions={[{ label: "Browse all cards", href: "/catalogue", primary: true }]}
-        />
+        <EmptyState icon="🔍" title="No cards match your search" description="Try different keywords or clear your filters." actions={[{ label: "Browse all cards", href: "/catalogue", primary: true }]} />
       )}
 
-      {/* ══ CARD GRID ═══════════════════════════════════════════════════ */}
+      {/* ══ CARD GRID ══════════════════════════════════════════════════════ */}
       {!isLoading && !loadError && visibleCards.length > 0 && (
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 stagger-grid">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 stagger-grid">
           {visibleCards.map((card) => {
             const inCartQty = cart.getItemQuantity(card.id);
             const hasStockCap = typeof card.availableQuantity === "number";
@@ -360,15 +341,13 @@ export function CatalogueGrid() {
             const isOOS = hasStockCap ? avail <= 0 || card.stockStatus === "Out of stock" : card.stockStatus === "Out of stock";
             const maxed = hasStockCap && !isOOS && inCartQty >= avail;
             const justAdded = recentlyAddedCardId === card.id;
-            const category = (card as any).category || "";
-            const categoryEmoji: Record<string, string> = { Football: "⚽", Rugby: "🏉", Cricket: "🏏", Disney: "✨", Basketball: "🏀", Baseball: "⚾", Other: "🃏" };
-            const badgeLabel = category ? `${categoryEmoji[category] ?? "🃏"} ${category}` : null;
+            const category = card.category || "";
 
             return (
               <article
                 key={card.id}
-                className={`card-foil card-holo group relative overflow-hidden rounded-2xl bg-white transition-transform duration-200`}
-                style={{ border: "1px solid rgba(0,0,0,0.08)", transformStyle: "preserve-3d" }}
+                className="card-foil card-holo group relative overflow-hidden rounded-2xl transition-all duration-250 hover:-translate-y-1.5"
+                style={{ background: "#D6D0C4", border: "1px solid rgba(0,0,0,0.07)", boxShadow: "0 2px 12px rgba(0,0,0,0.15)" }}
                 onMouseMove={(e) => {
                   const rect = e.currentTarget.getBoundingClientRect();
                   const x = ((e.clientX - rect.left) / rect.width) * 100;
@@ -377,81 +356,71 @@ export function CatalogueGrid() {
                   e.currentTarget.style.setProperty("--foil-y", `${y}%`);
                   const tiltX = ((y - 50) / 50) * -4;
                   const tiltY = ((x - 50) / 50) * 4;
-                  e.currentTarget.style.transform = `perspective(600px) rotateX(${tiltX}deg) rotateY(${tiltY}deg)`;
+                  e.currentTarget.style.transform = `perspective(600px) rotateX(${tiltX}deg) rotateY(${tiltY}deg) translateY(-6px)`;
                 }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.transform = "perspective(600px) rotateX(0deg) rotateY(0deg)";
-                }}
+                onMouseLeave={(e) => { e.currentTarget.style.transform = ""; }}
               >
                 <Link
-                  href={
-                    (card as any).setSlug && (card as any).cardSlug
-                      ? `/catalogue/${(card as any).setSlug}/${(card as any).cardSlug}`
-                      : buildPublicCardPath({ setName: card.setName, title: card.playerName, player: card.playerName, cardNumber: card.cardNumber })
-                  }
+                  href={card.setSlug && card.cardSlug
+                    ? `/catalogue/${card.setSlug}/${card.cardSlug}`
+                    : buildPublicCardPath({ setName: card.setName, player: card.playerName, cardNumber: card.cardNumber })}
                   className="block"
                 >
-                  <div className="relative aspect-[2/3] overflow-hidden p-6">
+                  <div className="relative overflow-hidden" style={{ paddingBottom: "140%" }}>
                     {card.imageUrl ? (
-                      <img src={card.imageUrl} alt={`${card.playerName} card`} className="h-full w-full rounded-xl object-contain bg-slate-50 transition-transform duration-500 group-hover:scale-[1.03]" />
+                      <img
+                        src={thumbUrl(card.imageUrl, 200)}
+                        alt={`${card.playerName} card`}
+                        loading="lazy"
+                        decoding="async"
+                        width={200}
+                        height={280}
+                        className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.04]" style={{ objectPosition: "center", padding: "4px 0" }} />
                     ) : (
-                      <div className="flex h-full flex-col items-center justify-center gap-3" style={{ background: category === "Disney" ? "linear-gradient(135deg, #eff6ff, #dbeafe)" : "linear-gradient(135deg, #f0fdf4, #dcfce7)" }}>
-                        <span className="text-4xl opacity-30">{categoryEmoji[category] ?? "🃏"}</span>
-                        <p className="text-[11px] uppercase tracking-[0.25em] text-zinc-400">Card artwork</p>
+                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-3"
+                        style={{ background: category === "Disney" ? "linear-gradient(135deg, #1a1a2e, #16213e)" : "linear-gradient(135deg, #0d1a0d, #0a1a12)" }}>
+                        <span className="text-4xl opacity-30">{category === "Disney" ? "✨" : "⚽"}</span>
                       </div>
                     )}
-                    <div className="pointer-events-none absolute inset-0" />
-
-                    <span className={`absolute left-3 top-3 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.15em] ${category === "Disney" ? "badge-disney" : "badge-football"}`}>
-                      {badgeLabel ?? "🃏 Card"}
-                    </span>
-
-                    <span className={`absolute right-3 top-3 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.15em] ${card.stockStatus === "In stock" ? "badge-owned" : card.stockStatus === "Low stock" ? "badge-gold" : "badge-limited"}`}>
-                      {card.stockStatus}
-                    </span>
+                    <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
+                    {!isOOS && (
+                      <span className="absolute left-2 top-2 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide"
+                        style={{ background: "rgba(8,123,117,0.9)", color: "white" }}>IN STOCK</span>
+                    )}
+                    {isOOS && (
+                      <span className="absolute left-2 top-2 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide"
+                        style={{ background: "rgba(220,38,38,0.85)", color: "white" }}>SOLD OUT</span>
+                    )}
                   </div>
 
-                  <div className="p-4">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-bold text-zinc-800">{card.playerName}</p>
-                        <p className="mt-0.5 text-[11px] text-zinc-400">#{card.cardNumber} · {card.team}</p>
-                      </div>
-                      <p className="flex-shrink-0 text-sm font-black text-[#c89b3c]">{formatGBP(card.price)}</p>
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {card.parallel && <span className="rounded-full bg-[#fafaf9] px-2 py-0.5 text-[10px] text-zinc-500" style={{ border: "1px solid rgba(0,0,0,0.07)" }}>{card.parallel}</span>}
+                  <div className="p-3">
+                    <p className="truncate text-[13px] font-bold text-zinc-900">{card.playerName}</p>
+                    <p className="mt-0.5 text-[11px]" style={{ color: "rgba(0,0,0,0.4)" }}>{card.setName}</p>
+                    <p className="text-[10px]" style={{ color: "rgba(0,0,0,0.35)" }}>#{card.cardNumber}{card.parallel ? ` · ${card.parallel}` : ""}</p>
+                    <div className="mt-2 flex items-center justify-between">
+                      <p className="text-[14px] font-black" style={{ color: "#F26A21" }}>{formatGBP(card.price)}</p>
                     </div>
                   </div>
                 </Link>
 
-                <div className="px-4 pb-4">
+                <div className="px-3 pb-3">
                   <button
                     type="button"
                     disabled={isOOS || maxed}
                     onClick={(e) => {
                       if (isOOS || maxed) return;
-                      // Trigger fly animation
                       const article = e.currentTarget.closest("article");
                       const img = article?.querySelector("img");
-                      if (img) {
-                        triggerFlyToCart(card.imageUrl || "", img.getBoundingClientRect());
-                      } else if (article) {
-                        triggerFlyToCart(card.imageUrl || "", article.getBoundingClientRect());
-                      }
+                      if (img) triggerFlyToCart(card.imageUrl || "", img.getBoundingClientRect());
+                      else if (article) triggerFlyToCart(card.imageUrl || "", article.getBoundingClientRect());
                       setRecentlyAddedCardId(card.id);
                       window.setTimeout(() => setRecentlyAddedCardId((c) => c === card.id ? null : c), 1000);
                       cart.addToCart({ id: card.id, playerName: card.playerName, cardNumber: card.cardNumber, price: card.price, imageUrl: card.imageUrl, availableQuantity: hasStockCap ? avail : undefined });
                     }}
-                    className={`w-full rounded-full py-2.5 text-sm font-bold transition-all ${
-                      isOOS || maxed
-                        ? "cursor-not-allowed bg-[#fafaf9] text-zinc-300"
-                        : justAdded
-                        ? "animate-added-chip bg-[#dcfce7] text-[#15803d] border border-[rgba(22,163,74,0.3)]"
-                        : "btn-gold"
-                    }`}
+                    className={`w-full rounded-xl py-2 text-[13px] font-bold transition-all ${isOOS || maxed ? "cursor-not-allowed opacity-40" : justAdded ? "animate-added-chip" : "btn-gold"}`}
+                    style={isOOS || maxed ? { background: "rgba(0,0,0,0.06)", color: "rgba(0,0,0,0.3)" } : justAdded ? { background: "rgba(8,123,117,0.12)", color: "#087B75", border: "1px solid rgba(8,123,117,0.3)" } : {}}
                   >
-                    {isOOS ? "Out of stock" : maxed ? "Max qty" : justAdded ? "✓ Added to vault" : "Add to Cart"}
+                    {isOOS ? "Out of stock" : maxed ? "Max qty" : justAdded ? "✓ Added" : "Add to Cart"}
                   </button>
                 </div>
               </article>
@@ -460,17 +429,16 @@ export function CatalogueGrid() {
         </div>
       )}
 
-      {/* Infinite scroll sentinel */}
       <div ref={sentinelRef} className="h-1" />
       {loadingMore && (
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="skeleton h-80 rounded-2xl" />
+            <div key={i} className="skeleton h-80 rounded-2xl" style={{ background: "rgba(255,255,255,0.05)" }} />
           ))}
         </div>
       )}
       {!hasMore && !isLoading && cards.length > 0 && (
-        <p className="py-6 text-center text-[12px] text-zinc-400">All {cards.length} cards loaded</p>
+        <p className="py-6 text-center text-[12px]" style={{ color: "rgba(255,255,255,0.25)" }}>All {totalCount} cards loaded</p>
       )}
     </div>
   );

@@ -4,15 +4,19 @@ import { Layout } from "@/components/Layout";
 import getBrowserSupabase from "@/lib/supabase/client";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-
 import { useAuth } from "@/contexts/AuthContext";
+import { formatGBP } from "@/lib/currency";
+import { thumbUrl } from "@/lib/images";
+
+type SetSlide = { name: string; cards: { image_url: string | null; player: string; card_number: string }[] };
 
 type DashboardStats = {
   totalCards: number;
   totalStock: number;
   sets: number;
   binderSets: number;
-  recentCards: { id: string; player: string; set_name: string; card_number: string; image_url: string | null }[];
+  recentCards: { id: string; player: string; set_name: string; card_number: string; image_url: string | null; price: number }[];
+  allSets: SetSlide[];
 };
 
 type CollectionStats = {
@@ -21,7 +25,7 @@ type CollectionStats = {
   pct: number;
 };
 
-function AnimatedCounter({ value, suffix = "" }: { value: number; suffix?: string }) {
+function AnimatedCounter({ value }: { value: number }) {
   const [n, setN] = useState(0);
   const ran = useRef(false);
   useEffect(() => {
@@ -36,7 +40,7 @@ function AnimatedCounter({ value, suffix = "" }: { value: number; suffix?: strin
     };
     requestAnimationFrame(tick);
   }, [value]);
-  return <>{n}{suffix}</>;
+  return <>{n}</>;
 }
 
 export default function DashboardPage() {
@@ -44,6 +48,11 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [collection, setCollection] = useState<CollectionStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [cardOffset, setCardOffset] = useState(0);
+  const [setSlide, setSetSlide] = useState(0);
+  const [slideDir, setSlideDir] = useState<"left" | "right">("right");
+  const [sliding, setSliding] = useState(false);
+  const slideTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -52,40 +61,32 @@ export default function DashboardPage() {
 
       const { data: cards } = await supabase
         .from("cards")
-        .select("id, player, set_name, card_number, image_url, stock, status, created_at");
+        .select("id, player, set_name, card_number, image_url, stock, status, created_at, price");
 
-      const { data: binderSets } = await supabase
-        .from("binder_sets")
-        .select("id, title");
+      const { data: binderSets } = await supabase.from("binder_sets").select("id, title");
 
       const allCards = cards || [];
       const setNames = new Set(allCards.map(c => c.set_name));
       const totalStock = allCards.reduce((sum, c) => sum + (c.stock || 0), 0);
+      const recent = [...allCards].sort((a, b) => (b.created_at || "").localeCompare(a.created_at || "")).slice(0, 12);
 
-      const recent = [...allCards]
-        .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""))
-        .slice(0, 8);
+      const allSets: SetSlide[] = [];
+      for (const setName of Array.from(setNames)) {
+        const setCards = allCards.filter(c => c.set_name === setName && c.image_url).slice(0, 3);
+        if (setCards.length > 0) allSets.push({ name: setName, cards: setCards });
+      }
 
-      setStats({
-        totalCards: allCards.length,
-        totalStock,
-        sets: setNames.size,
-        binderSets: (binderSets || []).length,
-        recentCards: recent,
-      });
+      setStats({ totalCards: allCards.length, totalStock, sets: setNames.size, binderSets: (binderSets || []).length, recentCards: recent, allSets });
 
-      // User collection progress — total checklist entries vs how many they've marked collected
       if (user) {
-        const [checklistRes, progressRes, hiddenRes] = await Promise.all([
+        const [, progressRes, hiddenRes] = await Promise.all([
           supabase.from("binder_checklist").select("id", { count: "exact", head: true }),
           supabase.from("user_binder_progress").select("id", { count: "exact", head: true }).eq("user_id", user.id),
           supabase.from("user_binder_hidden").select("set_id").eq("user_id", user.id),
         ]);
         const hiddenSetIds = new Set((hiddenRes.data || []).map((r: any) => r.set_id));
-        // Get all active binder set ids
         const { data: activeSets } = await supabase.from("binder_sets").select("id").eq("is_active", true);
         const collectingSetIds = (activeSets || []).map((s: any) => s.id).filter((id: string) => !hiddenSetIds.has(id));
-        // Count checklist entries only for sets the user is collecting
         let total = 0;
         if (collectingSetIds.length > 0) {
           const { count } = await supabase.from("binder_checklist").select("id", { count: "exact", head: true }).in("set_id", collectingSetIds);
@@ -101,139 +102,238 @@ export default function DashboardPage() {
     load();
   }, [user]);
 
+  useEffect(() => {
+    if (!stats?.allSets.length) return;
+    slideTimer.current = setInterval(() => goSlide("right"), 4000);
+    return () => { if (slideTimer.current) clearInterval(slideTimer.current); };
+  }, [stats?.allSets.length, setSlide]);
+
+  function goSlide(dir: "left" | "right") {
+    if (!stats?.allSets.length || sliding) return;
+    setSlideDir(dir);
+    setSliding(true);
+    setTimeout(() => {
+      setSetSlide(i => {
+        const len = stats.allSets.length;
+        return dir === "right" ? (i + 1) % len : (i - 1 + len) % len;
+      });
+      setSliding(false);
+    }, 300);
+  }
+
+  function manualSlide(dir: "left" | "right") {
+    if (slideTimer.current) clearInterval(slideTimer.current);
+    goSlide(dir);
+  }
+
   const circumference = 2 * Math.PI * 44;
   const completionPct = collection?.pct ?? 0;
   const dashOffset = circumference - (completionPct / 100) * circumference;
+  const visibleCards = stats?.recentCards.slice(cardOffset, cardOffset + 8) ?? [];
 
   return (
     <Layout>
-      <div className="space-y-10">
+      <div className="space-y-4">
 
-        {/* ══ HERO ══════════════════════════════════════════════════════ */}
-        <section className="animate-fade-up relative overflow-hidden rounded-2xl" style={{ background: "linear-gradient(145deg, #fffdf8 0%, #fdf8f0 40%, #faf5ed 100%)", boxShadow: "0 1px 3px rgba(0,0,0,0.04), inset 0 0 0 1px rgba(200,155,60,0.08)" }}>
-          <div className="pointer-events-none absolute -top-20 right-0 h-80 w-80 rounded-full opacity-40" style={{ background: "radial-gradient(circle, rgba(200,155,60,0.15), transparent 70%)" }} />
+        {/* ══ TOP ROW: Hero + Featured Set ══════════════════════════════════ */}
+        <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
 
-          <div className="relative p-6 sm:p-8">
-            {/* Store active */}
-            <div className="flex items-center gap-2 mb-4">
-              <span className="relative flex h-1.5 w-1.5">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-50" />
-                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
-              </span>
-              <span className="text-[10px] font-semibold uppercase tracking-[0.3em] text-zinc-400">Store active</span>
-            </div>
+          {/* Hero — cream panel */}
+          <section className="relative overflow-hidden rounded-3xl animate-fade-up" style={{ background: "#D6D0C4", height: 420 }}>
+            {/* Decorative blobs */}
+            <div className="pointer-events-none absolute -bottom-16 right-1/4 h-56 w-56 rounded-full" style={{ background: "radial-gradient(circle, rgba(242,106,33,0.35), transparent 70%)", filter: "blur(40px)" }} />
+            <div className="pointer-events-none absolute -bottom-8 right-8 h-40 w-40 rounded-full" style={{ background: "radial-gradient(circle, rgba(8,123,117,0.4), transparent 70%)", filter: "blur(32px)" }} />
 
-            {/* Title */}
-            <h1 className="text-3xl font-black tracking-tight text-zinc-900 sm:text-4xl font-display" style={{ lineHeight: 1.1 }}>
-              Every card.<br />
-              <span className="text-gold">Every moment.</span><br />
-              <span className="text-zinc-300">Preserved.</span>
-            </h1>
+            <div className="relative flex flex-col lg:flex-row gap-6 p-7 sm:p-8">
+              {/* Left */}
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-5">
+                  <span className="relative flex h-1.5 w-1.5">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-50" />
+                    <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                  </span>
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.3em]" style={{ color: "rgba(0,0,0,0.35)" }}>Store active</span>
+                </div>
 
-            <p className="mt-3 max-w-md text-[13px] leading-relaxed text-zinc-500">
-              Browse, collect and track your favourite trading cards — all in one place.
-            </p>
+                <h1 className="text-4xl font-black tracking-tight text-zinc-900 sm:text-5xl" style={{ lineHeight: 1.05 }}>
+                  Every card.<br />
+                  <span style={{ color: "#F26A21" }}>Every moment.</span><br />
+                  <span style={{ color: "#087B75" }}>Preserved.</span>
+                </h1>
 
-            {/* Stats row — includes completion ring */}
-            {loading ? (
-              <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-5">
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <div key={i} className="skeleton h-14 rounded-lg" />
-                ))}
-              </div>
-            ) : stats && (
-              <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-5">
-                {[
-                  { label: "Total Cards", value: stats.totalCards },
-                  { label: "Total Stock", value: stats.totalStock },
-                  { label: "Sets", value: stats.sets },
-                  { label: "Binder Sets", value: stats.binderSets },
-                ].map((s) => (
-                  <div key={s.label} className="relative pl-3">
-                    <div className="absolute left-0 top-1 bottom-1 w-[3px] rounded-full" style={{ background: "#c89b3c", opacity: 0.6 }} />
-                    <p className="text-[9px] font-medium uppercase tracking-wider text-zinc-400">{s.label}</p>
-                    <p className="mt-0.5 text-xl font-black tabular-nums text-amber-700">
-                      <AnimatedCounter value={s.value} />
-                    </p>
-                  </div>
-                ))}
-                {/* Completion ring inline with stats */}
-                <div className="flex items-center gap-3 pl-3">
-                  <svg width="72" height="72" viewBox="0 0 100 100" className="flex-shrink-0">
-                    <circle cx="50" cy="50" r="44" fill="none" stroke="#f0ede8" strokeWidth="8" />
-                    <circle
-                      cx="50" cy="50" r="44"
-                      fill="none"
-                      stroke="url(#goldGradDash)"
-                      strokeWidth="8"
-                      strokeLinecap="round"
-                      strokeDasharray={circumference}
-                      strokeDashoffset={dashOffset}
-                      transform="rotate(-90 50 50)"
-                      style={{ transition: "stroke-dashoffset 1.4s cubic-bezier(0.22,1,0.36,1)" }}
-                    />
-                    <defs>
-                      <linearGradient id="goldGradDash" x1="0%" y1="0%" x2="100%" y2="100%">
-                        <stop offset="0%" stopColor="#f5d97a" />
-                        <stop offset="100%" stopColor="#c89b3c" />
-                      </linearGradient>
-                    </defs>
-                    <text x="50" y="55" textAnchor="middle" style={{ fontSize: 22, fontWeight: 900, fill: "#78716c" }}>
-                      {completionPct}%
-                    </text>
-                  </svg>
-                  <div>
-                    <p className="text-[9px] font-medium uppercase tracking-wider text-zinc-400">Collected</p>
-                    <p className="text-[13px] font-black text-amber-700">{collection?.collected ?? 0}<span className="text-[10px] font-medium text-zinc-400">/{collection?.total ?? 0}</span></p>
-                  </div>
+                <p className="mt-4 max-w-xs text-[14px] leading-relaxed" style={{ color: "rgba(0,0,0,0.45)" }}>
+                  Browse, collect and track your favourite trading cards — all in one place.
+                </p>
+
+                <div className="mt-6 flex flex-wrap items-center gap-3">
+                  <Link href="/catalogue" className="btn-gold inline-flex items-center gap-2 rounded-full px-6 py-2.5 text-[13px] font-bold">
+                    Browse Cards →
+                  </Link>
+                  <Link href="/binder"
+                    className="inline-flex items-center gap-2 rounded-full px-6 py-2.5 text-[13px] font-semibold transition hover:-translate-y-0.5"
+                    style={{ border: "1px solid rgba(8,123,117,0.3)", background: "rgba(8,123,117,0.06)", color: "#087B75" }}>
+                    Open Binder
+                  </Link>
                 </div>
               </div>
-            )}
 
-            {/* Actions */}
-            <div className="mt-6 flex items-center gap-3">
-              <Link href="/catalogue" className="btn-gold inline-flex items-center gap-2 rounded-full px-6 py-2.5 text-[13px]">
-                Browse Cards →
-              </Link>
-              <Link href="/binder" className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-6 py-2.5 text-[13px] font-semibold text-zinc-600 shadow-sm transition hover:border-zinc-300 hover:text-zinc-800">
-                Open Binder
-              </Link>
-            </div>
-          </div>
-        </section>
-
-        {/* ══ RECENT CARDS ═══════════════════════════════════════════════ */}
-        {!loading && stats && stats.recentCards.length > 0 && (
-          <section className="animate-fade-up" style={{ animationDelay: "80ms" }}>
-            <div className="mb-4 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <h2 className="text-[15px] font-bold text-zinc-800">Recently Added</h2>
-                <span className="rounded-md px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide badge-owned">New</span>
-              </div>
-              <Link href="/catalogue" className="text-[12px] font-semibold text-amber-700 hover:text-amber-900 transition">
-                View all →
-              </Link>
-            </div>
-            <div className="scroll-row gap-3">
-              {stats.recentCards.map((card) => (
-                <Link
-                  key={card.id}
-                  href="/catalogue"
-                  className="group relative flex-shrink-0 overflow-hidden rounded-xl transition-all duration-300 hover:-translate-y-1.5 hover:shadow-[0_16px_40px_rgba(0,0,0,0.1)]"
-                  style={{ width: 156, boxShadow: "0 2px 12px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04)" }}
-                >
-                  <div className="relative overflow-hidden" style={{ height: 210 }}>
-                    {card.image_url ? (
-                      <img src={card.image_url} alt={card.player} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
-                    ) : (
-                      <div className="flex h-full items-center justify-center bg-gradient-to-br from-[#f5f1ea] to-[#ede8df]">
-                        <span className="text-3xl opacity-20">🃏</span>
+              {/* Right — stats card */}
+              {!loading && stats && (
+                <div className="lg:w-64 rounded-2xl p-5 shrink-0" style={{ background: "rgba(255,255,255,0.7)", border: "1px solid rgba(0,0,0,0.06)", backdropFilter: "blur(12px)" }}>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.25em] mb-4" style={{ color: "rgba(0,0,0,0.35)" }}>Your Collection</p>
+                  <div className="space-y-3">
+                    {[
+                      { label: "Total Cards", value: stats.totalCards },
+                      { label: "Total Stock", value: stats.totalStock },
+                      { label: "Sets", value: stats.sets },
+                      { label: "Binder Sets", value: stats.binderSets },
+                    ].map(s => (
+                      <div key={s.label} className="flex items-center justify-between">
+                        <span className="text-[11px] uppercase tracking-wider" style={{ color: "rgba(0,0,0,0.4)" }}>{s.label}</span>
+                        <span className="text-xl font-black text-zinc-900"><AnimatedCounter value={s.value} /></span>
                       </div>
-                    )}
-                    <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/50 via-black/10 to-transparent" />
-                    <div className="absolute inset-x-0 bottom-0 p-2.5">
-                      <p className="truncate text-[11px] font-semibold text-white leading-tight">#{card.card_number} {card.player}</p>
-                      <p className="truncate text-[9px] text-white/50 mt-0.5">{card.set_name}</p>
+                    ))}
+                    {/* Ring */}
+                    <div className="flex items-center gap-3 pt-2" style={{ borderTop: "1px solid rgba(0,0,0,0.06)" }}>
+                      <svg width="52" height="52" viewBox="0 0 100 100" className="shrink-0">
+                        <circle cx="50" cy="50" r="44" fill="none" stroke="rgba(0,0,0,0.08)" strokeWidth="8" />
+                        <circle cx="50" cy="50" r="44" fill="none" stroke="#087B75" strokeWidth="8" strokeLinecap="round"
+                          strokeDasharray={circumference} strokeDashoffset={dashOffset} transform="rotate(-90 50 50)"
+                          style={{ transition: "stroke-dashoffset 1.4s cubic-bezier(0.22,1,0.36,1)", filter: "drop-shadow(0 0 4px rgba(8,123,117,0.5))" }} />
+                        <text x="50" y="55" textAnchor="middle" style={{ fontSize: 22, fontWeight: 900, fill: "#1c1917" }}>{completionPct}%</text>
+                      </svg>
+                      <div>
+                        <p className="text-[10px] uppercase tracking-wider" style={{ color: "rgba(0,0,0,0.4)" }}>Collected</p>
+                        <p className="text-lg font-black" style={{ color: "#087B75" }}>
+                          {collection?.collected ?? 0}
+                          <span className="text-[11px] font-medium" style={{ color: "rgba(0,0,0,0.3)" }}>/{collection?.total ?? 0}</span>
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
+
+          {/* Sets Slideshow */}
+          {stats?.allSets.length ? (() => {
+            const slide = stats.allSets[setSlide];
+            return (
+              <section className="relative rounded-3xl animate-fade-up" style={{ background: "linear-gradient(145deg, #0a1a1a, #0d2020)", border: "1px solid rgba(8,123,117,0.2)", height: 420 }}>
+                <div className="pointer-events-none absolute -bottom-12 -right-12 h-48 w-48 rounded-full" style={{ background: "radial-gradient(circle, rgba(242,106,33,0.4), transparent 70%)", filter: "blur(32px)" }} />
+                <div className="pointer-events-none absolute top-0 left-0 h-32 w-32 rounded-full" style={{ background: "radial-gradient(circle, rgba(8,123,117,0.3), transparent 70%)", filter: "blur(24px)" }} />
+                <div className="absolute inset-0 p-7 pb-4 flex flex-col">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.3em]" style={{ color: "rgba(8,163,155,0.7)" }}>Sets Available</p>
+                    <div className="flex items-center gap-2">
+                      <div className="flex gap-1 mr-1">
+                        {stats.allSets.map((_, i) => (
+                          <button key={i}
+                            onClick={() => { if (slideTimer.current) clearInterval(slideTimer.current); setSlideDir(i > setSlide ? "right" : "left"); setSetSlide(i); }}
+                            className="rounded-full transition-all duration-300"
+                            style={{ width: i === setSlide ? 16 : 6, height: 6, background: i === setSlide ? "#F26A21" : "rgba(255,255,255,0.2)" }}
+                          />
+                        ))}
+                      </div>
+                      <button onClick={() => manualSlide("left")}
+                        className="flex h-7 w-7 items-center justify-center rounded-full text-white transition hover:bg-white/10"
+                        style={{ border: "1px solid rgba(255,255,255,0.15)" }}>←</button>
+                      <button onClick={() => manualSlide("right")}
+                        className="flex h-7 w-7 items-center justify-center rounded-full text-white transition hover:bg-white/10"
+                        style={{ border: "1px solid rgba(255,255,255,0.15)" }}>→</button>
+                    </div>
+                  </div>
+                  <div className="flex-1 flex flex-col min-h-0" style={{
+                    opacity: sliding ? 0 : 1,
+                    transform: sliding ? `translateX(${slideDir === "right" ? "20px" : "-20px"})` : "translateX(0)",
+                    transition: "opacity 0.3s ease, transform 0.3s ease",
+                  }}>
+                    <h2 className="text-3xl font-black text-white leading-tight truncate">{slide.name}</h2>
+                    <p className="mt-2 text-[13px]" style={{ color: "rgba(255,255,255,0.45)" }}>{setSlide + 1} of {stats.allSets.length} sets</p>
+                    <Link href="/catalogue"
+                      className="mt-4 inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-[13px] font-bold text-white transition hover:-translate-y-0.5 self-start"
+                      style={{ background: "#087B75", boxShadow: "0 4px 16px rgba(8,123,117,0.4)" }}>
+                      Explore Series →
+                    </Link>
+                    <div className="mt-auto pt-4 flex items-end justify-end gap-2 overflow-visible pb-6">
+                      {slide.cards.slice(0, 3).map((card, i) => (
+                        <div key={i} className="overflow-hidden rounded-xl shrink-0" style={{
+                          width: i === 1 ? 100 : 80, height: i === 1 ? 140 : 112,
+                          transform: i === 0 ? "rotate(-6deg) translateY(8px)" : i === 2 ? "rotate(6deg) translateY(8px)" : "none",
+                          boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+                          border: "1px solid rgba(255,255,255,0.1)",
+                          position: "relative", zIndex: i === 1 ? 2 : 1,
+                        }}>
+                          {card.image_url
+                            ? <img
+                                src={thumbUrl(card.image_url, 100)}
+                                alt={card.player}
+                                loading="lazy"
+                                decoding="async"
+                                width={100}
+                                height={140}
+                                className="h-full w-full object-cover" />
+                            : <div className="h-full w-full flex items-center justify-center text-2xl" style={{ background: "#131a1a" }}>🃏</div>
+                          }
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </section>
+            );
+          })() : null}
+        </div>
+
+        {/* ══ RECENTLY ADDED ════════════════════════════════════════════════ */}
+        {!loading && stats && stats.recentCards.length > 0 && (
+          <section className="animate-fade-up rounded-3xl p-6" style={{ background: "#D6D0C4", animationDelay: "80ms" }}>
+            <div className="mb-5 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <h2 className="text-[16px] font-bold text-zinc-900">Recently Added</h2>
+                <span className="rounded-md px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide"
+                  style={{ background: "rgba(8,123,117,0.12)", color: "#087B75", border: "1px solid rgba(8,123,117,0.2)" }}>New</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setCardOffset(Math.max(0, cardOffset - 8))} disabled={cardOffset === 0}
+                  className="flex h-8 w-8 items-center justify-center rounded-full transition disabled:opacity-30"
+                  style={{ border: "1px solid rgba(0,0,0,0.12)", background: "white" }}>
+                  ←
+                </button>
+                <button onClick={() => setCardOffset(Math.min(stats.recentCards.length - 8, cardOffset + 8))}
+                  disabled={cardOffset + 8 >= stats.recentCards.length}
+                  className="flex h-8 w-8 items-center justify-center rounded-full transition disabled:opacity-30"
+                  style={{ border: "1px solid rgba(0,0,0,0.12)", background: "white" }}>
+                  →
+                </button>
+                <Link href="/catalogue" className="text-[12px] font-semibold ml-2 transition" style={{ color: "#F26A21" }}>
+                  View all →
+                </Link>
+              </div>
+            </div>
+            <div className="grid grid-cols-4 gap-3 sm:grid-cols-6 lg:grid-cols-8">
+              {visibleCards.map((card) => (
+                <Link key={card.id} href="/catalogue"
+                  className="group relative overflow-hidden rounded-2xl transition-all duration-250 hover:-translate-y-1.5"
+                  style={{ boxShadow: "0 2px 12px rgba(0,0,0,0.12)", border: "1px solid rgba(0,0,0,0.06)" }}
+                >
+                  <div className="relative overflow-hidden" style={{ paddingBottom: "140%" }}>
+                    {card.image_url
+                      ? <img
+                          src={thumbUrl(card.image_url, 80)}
+                          alt={card.player}
+                          loading="lazy"
+                          decoding="async"
+                          width={80}
+                          height={112}
+                          className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.04]" />
+                      : <div className="absolute inset-0 flex items-center justify-center" style={{ background: "#e8e4dc" }}><span className="text-2xl opacity-20">🃏</span></div>
+                    }
+                    <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/60 via-black/5 to-transparent" />
+                    <div className="absolute inset-x-0 bottom-0 p-2">
+                      <p className="truncate text-[10px] font-bold text-white leading-tight">#{card.card_number} {card.player}</p>
+                      <p className="truncate text-[8px] mt-0.5" style={{ color: "rgba(255,255,255,0.5)" }}>{card.set_name}</p>
                     </div>
                   </div>
                 </Link>
@@ -242,29 +342,28 @@ export default function DashboardPage() {
           </section>
         )}
 
-        {/* ══ QUICK ACTIONS ═══════════════════════════════════════════════ */}
-        <section className="animate-fade-up" style={{ animationDelay: "160ms" }}>
-          <h3 className="mb-4 text-[12px] font-semibold uppercase tracking-wider text-zinc-400">Quick Actions</h3>
+        {/* ══ QUICK ACTIONS ═════════════════════════════════════════════════ */}
+        <section className="animate-fade-up rounded-3xl p-6" style={{ background: "#D6D0C4", animationDelay: "160ms" }}>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {[
-              { href: "/catalogue", icon: "🔍", label: "Browse Catalogue", sub: "View all available cards" },
-              { href: "/discover", icon: "📦", label: "Discover Sets", sub: "View all available sets" },
-              { href: "/binder", icon: "📖", label: "Open Binder", sub: "Your premium card album" },
-              { href: "/catalogue", icon: "⭐", label: "New Arrivals", sub: "Latest cards in stock" },
+              { href: "/catalogue", icon: "🔍", label: "Browse Catalogue", sub: "Explore all available cards", bg: "#087B75" },
+              { href: "/discover", icon: "📦", label: "Discover Sets", sub: "View all available sets", bg: "#F26A21" },
+              { href: "/binder", icon: "📖", label: "Open Binder", sub: "Your premium card album", bg: "#087B75" },
+              { href: "/catalogue", icon: "⭐", label: "New Arrivals", sub: "Latest cards in stock", bg: "#F26A21" },
             ].map((item) => (
-              <Link
-                key={item.label}
-                href={item.href}
-                className="group flex items-center gap-3.5 rounded-xl border border-[rgba(200,155,60,0.12)] p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-[rgba(200,155,60,0.3)] hover:shadow-[0_4px_16px_rgba(200,155,60,0.1)]"
-                style={{ background: "linear-gradient(145deg, #fffdf8, #faf5ed)" }}
+              <Link key={item.label} href={item.href}
+                className="group flex items-center gap-4 rounded-2xl p-4 transition-all duration-200 hover:-translate-y-0.5"
+                style={{ background: "white", border: "1px solid rgba(0,0,0,0.06)", boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}
               >
-                <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl text-lg" style={{ background: "rgba(200,155,60,0.1)", border: "1px solid rgba(200,155,60,0.2)" }}>
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-xl text-white"
+                  style={{ background: item.bg, boxShadow: `0 4px 12px ${item.bg}40` }}>
                   {item.icon}
                 </div>
-                <div>
-                  <p className="text-[13px] font-semibold text-zinc-700 group-hover:text-zinc-900 transition-colors">{item.label}</p>
-                  <p className="text-[10px] text-zinc-400">{item.sub}</p>
+                <div className="min-w-0">
+                  <p className="text-[13px] font-bold text-zinc-900">{item.label}</p>
+                  <p className="text-[11px]" style={{ color: "rgba(0,0,0,0.4)" }}>{item.sub}</p>
                 </div>
+                <span className="ml-auto text-zinc-300 group-hover:text-zinc-500 transition">→</span>
               </Link>
             ))}
           </div>

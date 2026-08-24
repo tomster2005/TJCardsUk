@@ -12,28 +12,23 @@ export default async function CatalogueCardPage({ params }: Props) {
   const { setSlug, cardSlug } = await Promise.resolve(params);
   const supabase = createServerSupabase();
 
-  const { data: cards, error } = await supabase.from("cards").select("*").eq("status", "published").order("created_at", { ascending: false });
+  // ── 1. Fetch only the matching card(s) by indexed slug columns ────────
+  // Prefer the base card (no parallel) if multiple rows share the same slug.
+  const { data: matches, error } = await supabase
+    .from("cards")
+    .select("*")
+    .eq("set_slug", setSlug)
+    .eq("card_slug", cardSlug)
+    .eq("status", "published");
 
   if (error) throw new Error("Unable to load catalogue card.");
-  if (!cards || cards.length === 0) notFound();
+  if (!matches || matches.length === 0) notFound();
 
-  const matches = cards.filter((card) => {
-    const { setSlug: rowSetSlug, cardSlug: rowCardSlug } = buildPublicCardSlugs({
-      setName: card.set_name ?? card.setName,
-      title: card.title,
-      player: card.player,
-      cardNumber: card.card_number ?? card.cardNumber,
-    });
-    return rowSetSlug === setSlug && rowCardSlug === cardSlug;
-  });
-
-  // Prefer the base card (no parallel) if multiple rows share the same slug
   const data = matches.find((c) => !c.parallel) ?? matches[0];
-
   if (!data) notFound();
 
-  // Fetch all cards with same card_number + set_name (base + all parallels)
-  const { data: allVariants, error: variantError } = await supabase
+  // ── 2. Fetch all variants (base + parallels) for this card ────────────
+  const { data: allVariants } = await supabase
     .from("cards")
     .select("id, player, card_number, parallel, price, stock, image_url, print_run, is_base_variant")
     .eq("card_number", data.card_number)
@@ -89,27 +84,29 @@ export default async function CatalogueCardPage({ params }: Props) {
     };
   });
 
-  const relatedCards = cards
-    .filter((item) => item.id !== resolvedData.id && !item.parallel)
-    .filter((item) => (item.set_name ?? "") === (resolvedData.set_name ?? ""))
-    .slice(0, 4)
-    .map((item) => {
-      const { setSlug: relatedSetSlug, cardSlug: relatedCardSlug } = buildPublicCardSlugs({
-        setName: item.set_name ?? item.setName,
-        title: item.title,
-        player: item.player,
-        cardNumber: item.card_number ?? item.cardNumber,
-      });
-      return {
-        id: item.id,
-        playerName: item.player ?? item.player_name ?? item.title ?? "Unknown",
-        cardNumber: String(item.card_number ?? item.cardNumber ?? "?"),
-        price: Number(item.price ?? 0),
-        imageUrl: item.image_url ?? item.imageUrl,
-        setSlug: relatedSetSlug,
-        cardSlug: relatedCardSlug,
-      };
-    });
+  // ── 3. Fetch related cards from the same set — indexed query ──────────
+  const { data: relatedRows } = await supabase
+    .from("cards")
+    .select("id, player, card_number, price, image_url, set_name, set_slug, card_slug")
+    .eq("set_slug", setSlug)
+    .eq("status", "published")
+    .is("parallel", null)
+    .neq("id", resolvedData.id)
+    .limit(4);
+
+  const relatedCards = (relatedRows ?? []).map((item) => ({
+    id: item.id,
+    playerName: item.player ?? "Unknown",
+    cardNumber: String(item.card_number ?? "?"),
+    price: Number(item.price ?? 0),
+    imageUrl: item.image_url ?? undefined,
+    setSlug: item.set_slug ?? setSlug,
+    cardSlug: item.card_slug ?? buildPublicCardSlugs({
+      setName: item.set_name,
+      player: item.player,
+      cardNumber: item.card_number,
+    }).cardSlug,
+  }));
 
   return (
     <Layout>

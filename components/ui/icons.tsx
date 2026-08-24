@@ -123,3 +123,41 @@ export function DotIcon({ className }: IconProps) {
     </BaseIcon>
   );
 }
+
+export function DiscoverIcon({ className }: IconProps) {
+  return (
+    <BaseIcon className={className}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M14.5 9.5l-5 2-2 5 5-2 2-5z" />
+    </BaseIcon>
+  );
+}
+
+export function LayersIcon({ className }: IconProps) {
+  return (
+    <BaseIcon className={className}>
+      <path d="M12 2L2 7l10 5 10-5-10-5z" />
+      <path d="M2 17l10 5 10-5" />
+      <path d="M2 12l10 5 10-5" />
+    </BaseIcon>
+  );
+}
+
+export function MissingIcon({ className }: IconProps) {
+  return (
+    <BaseIcon className={className}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 8v4" />
+      <path d="M12 16h.01" />
+    </BaseIcon>
+  );
+}
+
+export function ProfileIcon({ className }: IconProps) {
+  return (
+    <BaseIcon className={className}>
+      <circle cx="12" cy="8" r="3.5" />
+      <path d="M5 20a7 7 0 0 1 14 0" />
+    </BaseIcon>
+  );
+}

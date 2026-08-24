@@ -7,6 +7,7 @@ import { Layout } from "@/components/Layout";
 import { useCart } from "@/contexts/CartContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { formatGBP } from "@/lib/currency";
+import getBrowserSupabase from "@/lib/supabase/client";
 
 type CartItem = { cardId: string; playerName: string; quantity: number; price?: number };
 type ShippingDetails = {
@@ -49,19 +50,25 @@ function CheckoutSuccessContent() {
         return;
       }
 
-      const rawCart = typeof window !== "undefined" ? window.sessionStorage.getItem("collectra_sumup_cart") : null;
+      // Only send shipping details (for display + email).
+      // User identity is resolved server-side from the Authorization header.
+      // body.userId is not sent — the server validates the JWT directly.
       const rawShipping = typeof window !== "undefined" ? window.sessionStorage.getItem("collectra_sumup_shipping") : null;
-      const cartItems: CartItem[] = rawCart ? JSON.parse(rawCart) : [];
       const shipping: ShippingDetails | null = rawShipping ? JSON.parse(rawShipping) : null;
+
+      // Attach the session access token so the server can verify identity.
+      const supabase = getBrowserSupabase();
+      const { data: { session } } = await (supabase?.auth.getSession() ?? Promise.resolve({ data: { session: null } }));
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (session?.access_token) headers["Authorization"] = `Bearer ${session.access_token}`;
 
       const response = await fetch("/api/sumup/finalize", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           checkoutId,
-          items: cartItems,
           shippingDetails: shipping,
-          userId: user?.id ?? null,
+          // userId intentionally omitted — server derives it from the JWT
         }),
       });
 
@@ -77,7 +84,7 @@ function CheckoutSuccessContent() {
 
       if (!payload.paid) {
         setStatus("pending");
-        setMessage(`Payment is currently ${payload.status || "pending"}. Stock will update once payment completes.`);
+        setMessage(`Payment is currently pending. Stock will update once payment completes.`);
         return;
       }
 
@@ -87,7 +94,7 @@ function CheckoutSuccessContent() {
         window.sessionStorage.removeItem("collectra_sumup_shipping");
       }
 
-      setOrderItems(payload.items ?? cartItems);
+      setOrderItems(payload.items ?? []);
       setShippingDetails(shipping);
       setVerifiedTotal(payload.total ?? null);
       clearCart();

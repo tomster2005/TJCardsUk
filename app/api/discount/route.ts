@@ -1,20 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceSupabase } from "@/lib/supabase/server";
-import { Ratelimit } from "@upstash/ratelimit";
-import { Redis } from "@upstash/redis";
-
-const ratelimit = new Ratelimit({
-  redis: Redis.fromEnv(),
-  limiter: Ratelimit.slidingWindow(10, "1 m"),
-  prefix: "rl:discount",
-});
+import { rejectForbiddenOrigin } from "@/lib/api/origin";
+import { limiters, getIp, checkLimit } from "@/lib/api/ratelimit";
 
 export async function POST(request: NextRequest) {
-  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "anonymous";
-  const { success } = await ratelimit.limit(ip);
-  if (!success) {
-    return NextResponse.json({ error: "Too many requests." }, { status: 429 });
-  }
+  const ip = getIp(request);
+  const limited = await checkLimit(limiters.discount, ip);
+  if (limited) return limited;
+
+  const forbidden = rejectForbiddenOrigin(request);
+  if (forbidden) return forbidden;
 
   let code: string;
   try {

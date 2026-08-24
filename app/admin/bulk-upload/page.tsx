@@ -10,6 +10,8 @@ interface CardPair {
   back: File;
   frontPreview: string;
   backPreview: string;
+  frontName: string;
+  backName: string;
 }
 
 export default function BulkUploadPage() {
@@ -28,20 +30,28 @@ export default function BulkUploadPage() {
       return;
     }
 
-    const newPairs: CardPair[] = [];
-    for (let i = 0; i < sorted.length; i += 2) {
-      newPairs.push({
-        id: i / 2,
-        front: sorted[i],
-        back: sorted[i + 1],
-        frontPreview: URL.createObjectURL(sorted[i]),
-        backPreview: URL.createObjectURL(sorted[i + 1]),
+    const toDataUrl = (file: File): Promise<string> =>
+      new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.readAsDataURL(file);
       });
-    }
 
-    setError(null);
-    setSuccess(null);
-    setPairs(newPairs);
+    const buildPairs = async () => {
+      const newPairs: CardPair[] = [];
+      for (let i = 0; i < sorted.length; i += 2) {
+        const [frontPreview, backPreview] = await Promise.all([
+          toDataUrl(sorted[i]),
+          toDataUrl(sorted[i + 1]),
+        ]);
+        newPairs.push({ id: i / 2, front: sorted[i], back: sorted[i + 1], frontPreview, backPreview, frontName: sorted[i].name, backName: sorted[i + 1].name });
+      }
+      setError(null);
+      setSuccess(null);
+      setPairs(newPairs);
+    };
+
+    buildPairs().catch(err => setError(String(err?.message ?? err)));
   }, []);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -58,7 +68,13 @@ export default function BulkUploadPage() {
     setSuccess(null);
     setProgress({ done: 0, total: pairs.length });
 
-    const batchId = Date.now().toString(36);
+    // Find next batch number by listing existing folders
+    const { data: existingFiles } = await supabase.storage.from("card-images").list("", { limit: 1000 });
+    const existingNums = (existingFiles ?? [])
+      .map(f => parseInt(f.name, 10))
+      .filter(n => !isNaN(n));
+    const nextBatch = existingNums.length > 0 ? Math.max(...existingNums) + 1 : 1;
+    const batchId = String(nextBatch);
 
     for (let i = 0; i < pairs.length; i++) {
       const pair = pairs[i];
@@ -85,7 +101,6 @@ export default function BulkUploadPage() {
   };
 
   const clear = () => {
-    pairs.forEach(p => { URL.revokeObjectURL(p.frontPreview); URL.revokeObjectURL(p.backPreview); });
     setPairs([]);
     setError(null);
     setSuccess(null);

@@ -4,6 +4,15 @@ import { formatGBP } from "@/lib/currency";
 const FROM = "Collectra <orders@collectrauk.co.uk>";
 const ADMIN_EMAIL = "collectrauk@gmail.com";
 
+function h(value: string | null | undefined): string {
+  return (value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 type OrderItem = { playerName: string; quantity: number; price?: number };
 type ShippingDetails = {
   fullName?: string;
@@ -18,7 +27,7 @@ type ShippingDetails = {
 function orderItemsHtml(items: OrderItem[]) {
   return items.map((i) => `
     <tr>
-      <td style="padding:8px 0;border-bottom:1px solid #f0ede6;font-size:14px;color:#1c1917;">${i.playerName}</td>
+      <td style="padding:8px 0;border-bottom:1px solid #f0ede6;font-size:14px;color:#1c1917;">${h(i.playerName)}</td>
       <td style="padding:8px 0;border-bottom:1px solid #f0ede6;font-size:14px;color:#6b7280;text-align:center;">×${i.quantity}</td>
       <td style="padding:8px 0;border-bottom:1px solid #f0ede6;font-size:14px;color:#1c1917;text-align:right;">${i.price != null ? formatGBP(i.price * i.quantity) : "—"}</td>
     </tr>
@@ -62,7 +71,7 @@ export async function sendOrderConfirmation(
 
   const content = `
     <h1 style="margin:0 0 8px;font-size:24px;font-weight:900;color:#1c1917;">Order confirmed! 🎉</h1>
-    <p style="margin:0 0 32px;font-size:15px;color:#6b7280;">Thanks ${shipping.fullName ?? "there"}, your cards are on their way.</p>
+    <p style="margin:0 0 32px;font-size:15px;color:#6b7280;">Thanks ${h(shipping.fullName) || "there"}, your cards are on their way.</p>
 
     <table style="width:100%;border-collapse:collapse;margin-bottom:24px;">
       <thead>
@@ -80,7 +89,7 @@ export async function sendOrderConfirmation(
         <span>Subtotal</span><span>${formatGBP(subtotal)}</span>
       </div>
       <div style="display:flex;justify-content:space-between;margin-bottom:12px;font-size:13px;color:#6b7280;">
-        <span>Shipping (${shipping.shippingRate?.label ?? "Standard"})</span><span>${formatGBP(shippingCost)}</span>
+        <span>Shipping (${h(shipping.shippingRate?.label) || "Standard"})</span><span>${formatGBP(shippingCost)}</span>
       </div>
       <div style="display:flex;justify-content:space-between;font-size:16px;font-weight:900;color:#1c1917;border-top:1px solid #f0ede6;padding-top:12px;">
         <span>Total paid</span><span>${formatGBP(total)}</span>
@@ -90,10 +99,10 @@ export async function sendOrderConfirmation(
     <div style="background:#faf8f4;border-radius:12px;padding:16px;">
       <p style="margin:0 0 8px;font-size:11px;text-transform:uppercase;letter-spacing:0.15em;color:#9ca3af;">Shipping to</p>
       <p style="margin:0;font-size:14px;color:#1c1917;line-height:1.6;">
-        ${shipping.fullName ?? ""}<br>
-        ${shipping.addressLine1 ?? ""}${shipping.addressLine2 ? "<br>" + shipping.addressLine2 : ""}<br>
-        ${shipping.city ?? ""}<br>
-        ${shipping.postcode ?? ""}
+        ${h(shipping.fullName)}<br>
+        ${h(shipping.addressLine1)}${shipping.addressLine2 ? "<br>" + h(shipping.addressLine2) : ""}<br>
+        ${h(shipping.city)}<br>
+        ${h(shipping.postcode)}
       </p>
     </div>
   `;
@@ -141,13 +150,13 @@ export async function sendAdminOrderAlert(
     <div style="background:#faf8f4;border-radius:12px;padding:16px;">
       <p style="margin:0 0 8px;font-size:11px;text-transform:uppercase;letter-spacing:0.15em;color:#9ca3af;">Ship to</p>
       <p style="margin:0;font-size:14px;color:#1c1917;line-height:1.6;">
-        <strong>${shipping.fullName ?? "Unknown"}</strong><br>
-        ${shipping.addressLine1 ?? ""}${shipping.addressLine2 ? "<br>" + shipping.addressLine2 : ""}<br>
-        ${shipping.city ?? ""}<br>
-        ${shipping.postcode ?? ""}<br>
-        <span style="color:#6b7280;">${shipping.email ?? ""}</span>
+        <strong>${h(shipping.fullName) || "Unknown"}</strong><br>
+        ${h(shipping.addressLine1)}${shipping.addressLine2 ? "<br>" + h(shipping.addressLine2) : ""}<br>
+        ${h(shipping.city)}<br>
+        ${h(shipping.postcode)}<br>
+        <span style="color:#6b7280;">${h(shipping.email)}</span>
       </p>
-      ${shipping.shippingRate ? `<p style="margin:12px 0 0;font-size:13px;font-weight:600;color:#c89b3c;">${shipping.shippingRate.label}</p>` : ""}
+      ${shipping.shippingRate ? `<p style="margin:12px 0 0;font-size:13px;font-weight:600;color:#c89b3c;">${h(shipping.shippingRate.label)}</p>` : ""}
     </div>
   `;
 

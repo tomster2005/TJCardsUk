@@ -184,9 +184,10 @@ export default function ProfilePage() {
     const file = e.target.files?.[0];
     if (!file || !user) return;
 
-    // Only allow images, max 5MB
-    if (!file.type.startsWith("image/")) {
-      setMessage({ type: "error", text: "Only image files are allowed." });
+    // Only allow JPEG, PNG, WEBP — max 5 MB
+    const ALLOWED = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!ALLOWED.includes(file.type)) {
+      setMessage({ type: "error", text: "Only JPEG, PNG and WEBP images are allowed." });
       return;
     }
     if (file.size > 5 * 1024 * 1024) {
@@ -199,11 +200,12 @@ export default function ProfilePage() {
     const supabase = getBrowserSupabase();
     if (!supabase) { setAvatarUploading(false); return; }
 
-    const ext = file.name.split(".").pop()?.toLowerCase() ?? "jpg";
-    const path = `avatars/${user.id}/avatar.${ext}`;
+    const extMap: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+    const ext = extMap[file.type] ?? 'jpg';
+    const path = `${user.id}/avatar.${ext}`;
 
     const { error: uploadErr } = await supabase.storage
-      .from("card-images")
+      .from("avatars")
       .upload(path, file, { upsert: true, contentType: file.type });
 
     if (uploadErr) {
@@ -212,7 +214,7 @@ export default function ProfilePage() {
       return;
     }
 
-    const { data: urlData } = supabase.storage.from("card-images").getPublicUrl(path);
+    const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(path);
     const avatarUrl = urlData.publicUrl + `?t=${Date.now()}`; // cache bust
 
     await supabase.from("profiles").update({ avatar_url: urlData.publicUrl }).eq("id", user.id);
@@ -289,7 +291,7 @@ export default function ProfilePage() {
                 <input
                   ref={avatarInputRef}
                   type="file"
-                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  accept="image/jpeg,image/png,image/webp"
                   className="hidden"
                   onChange={handleAvatarChange}
                 />

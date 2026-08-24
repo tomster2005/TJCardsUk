@@ -28,13 +28,13 @@ export default function UserBindersAdminPage() {
 
     const { data } = await supabase
       .from("user_binders")
-      .select("*, profiles(username), user_binder_cards(count)")
+      .select("*, public_profiles(username), user_binder_cards(count)")
       .order("created_at", { ascending: false });
 
     if (data) {
       setBinders(data.map((b: any) => ({
         ...b,
-        username: b.profiles?.username || "Anonymous",
+        username: b.public_profiles?.username || "Anonymous",
         card_count: b.user_binder_cards?.[0]?.count ?? 0,
       })));
     }

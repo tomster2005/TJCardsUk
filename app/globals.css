@@ -6,52 +6,77 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 :root {
-  /* ── Light Palette ─────────────────────────────────────────────────────── */
-  --vault-bg:        #f8f6f2;
-  --vault-surface:   #ffffff;
-  --vault-raised:    #fdfcf9;
-  --vault-border:    rgba(0, 0, 0, 0.07);
-  --vault-border-hi: rgba(0, 0, 0, 0.12);
+  /* ── Shell ─────────────────────────────────────────────────────────────── */
+  --shell-bg:        #0D1212;
+  --shell-surface:   #131a1a;
+  --shell-border:    rgba(255,255,255,0.06);
+  --shell-text:      rgba(255,255,255,0.55);
+  --shell-text-hi:   rgba(255,255,255,0.9);
 
-  /* ── Gold System ───────────────────────────────────────────────────────── */
+  /* ── Content surfaces ──────────────────────────────────────────────────── */
+  --vault-bg:        #D6D0C4;
+  --vault-surface:   #D6D0C4;
+  --vault-raised:    #DDD7CB;
+  --vault-border:    rgba(0,0,0,0.09);
+  --vault-border-hi: rgba(0,0,0,0.14);
+
+  /* ── Orange — primary accent ────────────────────────────────────────────── */
+  --orange:          #F26A21;
+  --orange-light:    #F5854A;
+  --orange-dark:     #C9521A;
+  --orange-glow:     rgba(242,106,33,0.3);
+  --orange-glow-strong: rgba(242,106,33,0.55);
+  --orange-subtle:   rgba(242,106,33,0.08);
+
+  /* ── Teal — secondary accent ────────────────────────────────────────────── */
+  --teal:            #087B75;
+  --teal-light:      #0BA39B;
+  --teal-dark:       #065E59;
+  --teal-glow:       rgba(8,123,117,0.3);
+  --teal-subtle:     rgba(8,123,117,0.08);
+
+  /* ── Gold — legacy accent (kept for binder/card details) ───────────────── */
   --gold-100: #fef9ec;
   --gold-300: #f5d97a;
   --gold-400: #e8c14a;
   --gold-500: #c89b3c;
   --gold-600: #a07828;
-  --gold-glow: rgba(200, 155, 60, 0.35);
-  --gold-glow-strong: rgba(200, 155, 60, 0.6);
+  --gold-glow: rgba(200,155,60,0.3);
+  --gold-glow-strong: rgba(200,155,60,0.55);
 
-  /* ── Football — Emerald ────────────────────────────────────────────────── */
+  /* ── Football ───────────────────────────────────────────────────────────── */
   --football-dark:   #f0fdf4;
   --football-mid:    #dcfce7;
   --football-green:  #16a34a;
   --football-bright: #22c55e;
-  --football-glow:   rgba(22, 163, 74, 0.25);
+  --football-glow:   rgba(22,163,74,0.25);
 
-  /* ── Disney — Blue & Magic ─────────────────────────────────────────────── */
+  /* ── Disney ─────────────────────────────────────────────────────────────── */
   --disney-dark:     #eff6ff;
   --disney-mid:      #dbeafe;
   --disney-blue:     #3b5bdb;
   --disney-bright:   #748ffc;
   --disney-magic:    #cc5de8;
-  --disney-glow:     rgba(59, 91, 219, 0.2);
+  --disney-glow:     rgba(59,91,219,0.2);
 
-  /* ── Semantic ──────────────────────────────────────────────────────────── */
-  --owned:    #16a34a;
-  --wishlist: #ea580c;
+  /* ── Semantic ───────────────────────────────────────────────────────────── */
+  --owned:    #087B75;
+  --wishlist: #F26A21;
   --rare:     #9333ea;
   --limited:  #dc2626;
   --market:   #2563eb;
 
-  /* ── Shadows ───────────────────────────────────────────────────────────── */
-  --shadow-sm:    0 2px 8px rgba(0,0,0,0.06);
-  --shadow-md:    0 8px 32px rgba(0,0,0,0.08);
-  --shadow-lg:    0 20px 60px rgba(0,0,0,0.1);
-  --shadow-xl:    0 40px 100px rgba(0,0,0,0.12);
-  --shadow-gold:  0 8px 40px rgba(200,155,60,0.25);
-  --shadow-card:  0 4px 20px rgba(0,0,0,0.08), 0 1px 4px rgba(0,0,0,0.04);
-  --shadow-float: 0 24px 80px rgba(0,0,0,0.12), 0 4px 16px rgba(0,0,0,0.06);
+  /* ── Shadows ────────────────────────────────────────────────────────────── */
+  --shadow-sm:    0 2px 8px rgba(0,0,0,0.08);
+  --shadow-md:    0 8px 32px rgba(0,0,0,0.12);
+  --shadow-lg:    0 20px 60px rgba(0,0,0,0.16);
+  --shadow-xl:    0 40px 100px rgba(0,0,0,0.2);
+  --shadow-orange: 0 8px 32px rgba(242,106,33,0.2);
+  --shadow-teal:   0 8px 32px rgba(8,123,117,0.2);
+  --shadow-card:  0 4px 20px rgba(0,0,0,0.1), 0 1px 4px rgba(0,0,0,0.06);
+  --shadow-float: 0 24px 80px rgba(0,0,0,0.18), 0 4px 16px rgba(0,0,0,0.08);
+  /* keep gold shadow for legacy uses */
+  --shadow-gold:  0 8px 40px rgba(200,155,60,0.2);
 }
 
 /* ─── Reset ──────────────────────────────────────────────────────────────── */
@@ -63,12 +88,7 @@ html { scroll-behavior: smooth; }
 body {
   margin: 0;
   min-height: 100vh;
-  background-color: #f8f6f2;
-  background-image:
-    url("data:image/svg+xml,%3Csvg width='200' height='200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.02'/%3E%3C/svg%3E"),
-    radial-gradient(ellipse 100% 60% at 50% -20%, rgba(200,155,60,0.06), transparent),
-    radial-gradient(ellipse 60% 40% at 0% 50%, rgba(22,163,74,0.03), transparent),
-    radial-gradient(ellipse 60% 40% at 100% 80%, rgba(59,91,219,0.03), transparent);
+  background-color: var(--shell-bg);
   color: #1c1917;
   font-family: var(--font-geist-sans), "SF Pro Display", "Segoe UI", sans-serif;
   letter-spacing: 0.01em;
@@ -269,19 +289,13 @@ body {
 
 /* ─── Glass Surfaces ─────────────────────────────────────────────────────── */
 .glass {
-  background: rgba(255,255,255,0.75);
+  background: rgba(240,235,225,0.75);
   backdrop-filter: blur(24px) saturate(150%);
   -webkit-backdrop-filter: blur(24px) saturate(150%);
   border: 1px solid rgba(0,0,0,0.07);
 }
-.glass-gold {
-  background: rgba(200,155,60,0.06);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(200,155,60,0.2);
-}
 .glass-light {
-  background: rgba(255,255,255,0.92);
+  background: rgba(214,208,196,0.92);
   backdrop-filter: blur(20px) saturate(140%);
   -webkit-backdrop-filter: blur(20px) saturate(140%);
   border: 1px solid rgba(0,0,0,0.07);
@@ -615,3 +629,85 @@ button:focus-visible, a:focus-visible {
 .binder-flipbook .stf__wrapper {
   margin: 0 auto !important;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   COLLECTRA v2 — DESIGN SYSTEM OVERRIDES
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.btn-gold {
+  background: linear-gradient(135deg, #F5854A, #F26A21) !important;
+  color: #fff !important;
+  font-weight: 700;
+  border: none;
+  box-shadow: 0 4px 20px rgba(242,106,33,0.3) !important;
+  transition: all 200ms cubic-bezier(0.22,1,0.36,1);
+  animation: none !important;
+}
+.btn-gold:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 32px rgba(242,106,33,0.5) !important;
+}
+
+.nav-link.is-active {
+  color: #F26A21 !important;
+  background: rgba(242,106,33,0.1) !important;
+  border-color: rgba(242,106,33,0.25) !important;
+}
+.nav-link::after {
+  background: linear-gradient(90deg, transparent, #F26A21, transparent) !important;
+}
+
+.progress-fill {
+  background: linear-gradient(90deg, #087B75, #0BA39B) !important;
+  animation: progress-fill 1s cubic-bezier(0.22,1,0.36,1) both !important;
+}
+
+.ring-fill {
+  stroke: #087B75 !important;
+  filter: drop-shadow(0 0 6px rgba(8,123,117,0.5)) !important;
+}
+
+input:focus-visible, select:focus-visible, textarea:focus-visible,
+button:focus-visible, a:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(242,106,33,0.5), 0 0 0 5px rgba(242,106,33,0.12) !important;
+}
+
+.pocket-empty:hover {
+  border-color: rgba(242,106,33,0.4) !important;
+  background: rgba(242,106,33,0.03) !important;
+}
+
+@keyframes soft-pulse-orange {
+  0%, 100% { box-shadow: 0 0 0 rgba(242,106,33,0); }
+  50%       { box-shadow: 0 0 24px rgba(242,106,33,0.35); }
+}
+.animate-soft-pulse { animation: soft-pulse-orange 3s ease-in-out infinite !important; }
+
+.badge-owned    { background: rgba(8,123,117,0.12) !important; color: #087B75 !important; border: 1px solid rgba(8,123,117,0.25) !important; }
+.badge-wishlist { background: rgba(242,106,33,0.1) !important; color: #C9521A !important; border: 1px solid rgba(242,106,33,0.25) !important; }
+
+.card-tile {
+  transition: transform 250ms cubic-bezier(0.22,1,0.36,1), box-shadow 250ms ease;
+  border-radius: 16px;
+}
+.card-tile:hover {
+  transform: translateY(-4px) scale(1.015);
+  box-shadow: 0 16px 40px rgba(0,0,0,0.18), 0 4px 12px rgba(0,0,0,0.1);
+}
+
+/* ─── Surface tone-down ───────────────────────────────────────────────────── */
+/* Replaces flashbang whites with warm off-whites throughout content areas.   */
+/* Shell (dark sidebar/topbar) is unaffected.                                 */
+
+/* Tailwind bg-white inside content */
+.bg-white { background-color: #D6D0C4 !important; }
+
+/* bg-white\/xx opacity variants */
+.bg-white\/88 { background-color: rgba(214,208,196,0.88) !important; }
+.bg-white\/90 { background-color: rgba(214,208,196,0.90) !important; }
+.bg-white\/92 { background-color: rgba(214,208,196,0.92) !important; }
+.bg-white\/95 { background-color: rgba(214,208,196,0.95) !important; }
+
+/* Inline style #FBF8F2 and #ffffff panels — handled via CSS variable */
+/* Pages use background: "#FBF8F2" inline — override via a utility class */

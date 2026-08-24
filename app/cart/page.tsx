@@ -7,6 +7,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { useCart } from "@/contexts/CartContext";
 import { formatGBP } from "@/lib/currency";
 import getBrowserSupabase from "@/lib/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 
 type ShippingDetails = {
   fullName: string;
@@ -69,6 +70,8 @@ export default function CartPage() {
   const [appliedCode, setAppliedCode] = useState<{ code: string; type: string } | null>(null);
   const [discountError, setDiscountError] = useState<string | null>(null);
   const [applyingCode, setApplyingCode] = useState(false);
+
+  const { user } = useAuth();
 
   const {
     items, itemCount, subtotal,
@@ -137,6 +140,12 @@ export default function CartPage() {
     setIsStartingCheckout(true);
     setCheckoutError(null);
 
+    // Require login to checkout
+    if (!user) {
+      window.location.href = "/login";
+      return;
+    }
+
     // Validate live stock before hitting SumUp
     const supabase = getBrowserSupabase();
     if (supabase) {
@@ -163,10 +172,11 @@ export default function CartPage() {
     const response = await fetch("/api/sumup/checkout", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      // Send only identifiers — no prices. Server calculates the total.
       body: JSON.stringify({
-        amount: orderTotal,
-        currency: "GBP",
-        description: `Collectra order (${itemCount} item${itemCount !== 1 ? "s" : ""})`,
+        items: items.map(i => ({ cardId: i.cardId, quantity: i.quantity })),
+        shippingRateId: selectedRateId,
+        discountCode: appliedCode?.code ?? null,
       }),
     });
 

@@ -34,11 +34,28 @@ const STORAGE_KEY = "bulk-upload-progress";
 const FIELDS_KEY = "bulk-upload-fields";
 const BAG_KEY = "bulk-upload-bag";
 const BAG_COUNT_KEY = "bulk-upload-bag-count";
+const BAG_SUFFIX_KEY = "bulk-upload-bag-suffix";
 const BAG_CAPACITY = 30;
 
-function nextBag(current: string): string {
-  const num = parseInt(current.replace(/[^0-9]/g, ""), 10);
-  return isNaN(num) ? current : `${num + 1}AAA`;
+// Increment letter suffix: AAA → AAB → AAZ → ABA → ... → ZZZ
+function nextSuffix(suffix: string): string {
+  const chars = suffix.toUpperCase().split("");
+  for (let i = chars.length - 1; i >= 0; i--) {
+    if (chars[i] < "Z") { chars[i] = String.fromCharCode(chars[i].charCodeAt(0) + 1); return chars.join(""); }
+    chars[i] = "A";
+  }
+  return "A".repeat(chars.length + 1);
+}
+
+function parseBag(bag: string): { num: number; suffix: string } | null {
+  const m = bag.match(/^(\d+)([A-Z]+)$/i);
+  if (!m) return null;
+  return { num: parseInt(m[1], 10), suffix: m[2].toUpperCase() };
+}
+
+function nextBagInSet(current: string): string {
+  const p = parseBag(current);
+  return p ? `${p.num + 1}${p.suffix}` : current;
 }
 
 function loadProgress(): { batch: string | null; index: number; binderId: string | null; owner: string | null; category: string | null } {
@@ -206,20 +223,24 @@ export default function ProcessBatchPage() {
 
   // Bag / storage location
   const [currentBag, setCurrentBag] = useState<string>(() => {
-    try { return localStorage.getItem(BAG_KEY) ?? ""; } catch { return ""; }
+    try { return localStorage.getItem(BAG_KEY) || ""; } catch { return ""; }
   });
-  const [bagCount, setBagCount] = useState<number>(() => {
-    try { return parseInt(localStorage.getItem(BAG_COUNT_KEY) ?? "0", 10) || 0; } catch { return 0; }
+  const [bagCount, setBagCount] = useState<number>(0);
+  const [currentSuffix, setCurrentSuffix] = useState<string>(() => {
+    try { return localStorage.getItem(BAG_SUFFIX_KEY) ?? "AAA"; } catch { return "AAA"; }
   });
   const [bagOverride, setBagOverride] = useState("");
   const [showBagPrompt, setShowBagPrompt] = useState(false);
+  const [bagChangedTo, setBagChangedTo] = useState<string | null>(null); // non-null = show bag-change modal
+  const [bagStatus, setBagStatus] = useState<string | null>(null);
+  const [bagStatusLoading, setBagStatusLoading] = useState(false);
 
   useEffect(() => {
     try { localStorage.setItem(BAG_KEY, currentBag); } catch {}
   }, [currentBag]);
   useEffect(() => {
-    try { localStorage.setItem(BAG_COUNT_KEY, String(bagCount)); } catch {}
-  }, [bagCount]);
+    try { localStorage.setItem(BAG_SUFFIX_KEY, currentSuffix); } catch {}
+  }, [currentSuffix]);
 
   // Restore fields from sessionStorage on mount
   useEffect(() => {
@@ -278,6 +299,121 @@ export default function ProcessBatchPage() {
     })();
   }, [supabase, selectedBinder, cardNumber]);
 
+  // On mount, fetch live count for the current bag from Supabase
+  useEffect(() => {
+    if (!supabase || !currentBag) return;
+    (async () => {
+      setBagStatusLoading(true);
+      const { count } = await supabase
+        .from("card_copies")
+        .select("*", { count: "exact", head: true })
+        .eq("storage_location", currentBag)
+        .eq("sold", false);
+      const liveCount = count ?? 0;
+      setBagCount(liveCount);
+      if (liveCount >= BAG_CAPACITY) {
+        // Bag already full — find next available bag for this suffix
+        const parsed = parseBag(currentBag);
+        if (parsed) {
+          let allData: any[] = [];
+          let from = 0;
+          while (true) {
+            const { data, error } = await supabase
+              .from("card_copies")
+              .select("storage_location, sold")
+              .like("storage_location", `%${parsed.suffix}`)
+              .range(from, from + 999);
+            if (error || !data || data.length === 0) break;
+            allData = allData.concat(data);
+            if (data.length < 1000) break;
+            from += 1000;
+          }
+          const bagMap: Record<string, number> = {};
+          for (const row of allData) {
+            const loc = row.storage_location as string;
+            if (!row.sold) bagMap[loc] = (bagMap[loc] ?? 0) + 1;
+            else if (!(loc in bagMap)) bagMap[loc] = 0;
+          }
+          const sorted = Object.entries(bagMap).sort((a, b) => (parseBag(a[0])?.num ?? 0) - (parseBag(b[0])?.num ?? 0));
+          const available = sorted.find(([bag, cnt]) => bag !== currentBag && cnt < BAG_CAPACITY);
+          if (available) {
+            setCurrentBag(available[0]);
+            setBagCount(available[1]);
+            setBagChangedTo(available[0]);
+          } else {
+            const maxNum = Math.max(...sorted.map(([bag]) => parseBag(bag)?.num ?? 0));
+            const newBag = `${maxNum + 1}${parsed.suffix}`;
+            setCurrentBag(newBag);
+            setBagCount(0);
+            setShowBagPrompt(true);
+          }
+        }
+      }
+      setBagStatusLoading(false);
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // and find the best bag to resume (backfill: lowest-numbered bag with space first)
+  useEffect(() => {
+    if (!supabase || !currentSuffix) return;
+    setBagStatusLoading(true);
+    (async () => {
+      let allData: any[] = [];
+      let from = 0;
+      while (true) {
+        const { data, error } = await supabase
+          .from("card_copies")
+          .select("storage_location, sold")
+          .like("storage_location", `%${currentSuffix}`)
+          .range(from, from + 999);
+        if (error || !data || data.length === 0) break;
+        allData = allData.concat(data);
+        if (data.length < 1000) break;
+        from += 1000;
+      }
+
+      if (!data || data.length === 0) {
+        // No existing bags for this suffix — start fresh at 1
+        const firstBag = `1${currentSuffix}`;
+        setCurrentBag(firstBag);
+        setBagCount(0);
+        setBagStatus(`No existing bags — starting ${firstBag}`);
+        setBagStatusLoading(false);
+        return;
+      }
+
+      // Group unsold counts per bag
+      const bagMap: Record<string, number> = {};
+      for (const row of allData) {
+        const loc = row.storage_location as string;
+        if (!row.sold) bagMap[loc] = (bagMap[loc] ?? 0) + 1;
+        else if (!(loc in bagMap)) bagMap[loc] = 0;
+      }
+
+      // Sort bags by number ascending (backfill: lowest first)
+      const sorted = Object.entries(bagMap).sort((a, b) => {
+        const pa = parseBag(a[0]), pb = parseBag(b[0]);
+        return (pa?.num ?? 0) - (pb?.num ?? 0);
+      });
+
+      // Find first bag with space
+      const available = sorted.find(([, count]) => count < BAG_CAPACITY);
+      if (available) {
+        setCurrentBag(available[0]);
+        setBagCount(available[1]);
+        setBagStatus(`Resuming ${available[0]} (${available[1]}/${BAG_CAPACITY} used)`);
+      } else {
+        // All full — start next bag after the highest
+        const maxNum = Math.max(...sorted.map(([bag]) => parseBag(bag)?.num ?? 0));
+        const newBag = `${maxNum + 1}${currentSuffix}`;
+        setCurrentBag(newBag);
+        setBagCount(0);
+        setBagStatus(`All bags full — starting ${newBag}`);
+      }
+      setBagStatusLoading(false);
+    })();
+  }, [supabase, currentSuffix]);
+
   // Load binder sets
   useEffect(() => {
     if (!supabase) return;
@@ -296,9 +432,22 @@ export default function ProcessBatchPage() {
         .select("card_number, player_name")
         .eq("set_id", selectedBinder);
       setChecklist(data || []);
-      // Also set the set name from the binder title
       const binder = binderSets.find(b => b.id === selectedBinder);
-      if (binder) setSetName(binder.title);
+      if (binder) {
+        setSetName(binder.title);
+        // Auto-detect bag suffix from existing cards in this set
+        const { data: copies } = await supabase
+          .from("card_copies")
+          .select("storage_location, cards!inner(set_name)")
+          .eq("cards.set_name", binder.title)
+          .not("storage_location", "is", null)
+          .limit(1);
+        const loc = copies?.[0]?.storage_location as string | undefined;
+        if (loc) {
+          const parsed = parseBag(loc);
+          if (parsed) setCurrentSuffix(parsed.suffix);
+        }
+      }
     })();
   }, [supabase, selectedBinder, binderSets]);
 
@@ -309,7 +458,7 @@ export default function ProcessBatchPage() {
       worker = await createWorker("eng");
       setOcrWorker(worker);
     })();
-    return () => { worker?.terminate(); };
+    return () => { worker?.terminate().catch(() => {}); };
   }, []);
 
   // Crop center-bottom strip of front image (where name text sits)
@@ -387,7 +536,7 @@ export default function ProcessBatchPage() {
   useEffect(() => {
     const pair = pairs[currentIndex];
     if (pair && ocrWorker && !title && !cardNumber) {
-      runOCR(pair.front);
+      runOCR(pair.front).catch(() => {});
     }
   }, [currentIndex, pairs, ocrWorker]);
 
@@ -399,7 +548,17 @@ export default function ProcessBatchPage() {
       if (e) { setError(e.message); setLoading(false); return; }
       const folders = (data || [])
         .map(f => f.name)
-        .filter(name => name && !name.includes(".emptyFolderPlaceholder"));
+        .filter(name => name && !name.includes(".emptyFolderPlaceholder"))
+        .sort((a, b) => {
+          const na = parseInt(a, 10);
+          const nb = parseInt(b, 10);
+          const aIsNum = !isNaN(na);
+          const bIsNum = !isNaN(nb);
+          if (aIsNum && bIsNum) return nb - na; // numeric: descending
+          if (aIsNum) return -1; // numeric before alpha
+          if (bIsNum) return 1;
+          return b.localeCompare(a); // both alpha: descending
+        });
       setBatches(folders);
       setLoading(false);
     })();
@@ -461,6 +620,11 @@ export default function ProcessBatchPage() {
 
   async function handleSave() {
     if (!supabase || !currentPair) return;
+    const effectiveBag = bagOverride.trim() || currentBag;
+    if (!effectiveBag) {
+      setError("No bag assigned — wait for bag assignment to load or enter a bag override.");
+      return;
+    }
     setSaving(true);
     setError(null);
 
@@ -530,6 +694,7 @@ export default function ProcessBatchPage() {
       return;
     }
 
+
     // ── Normal mode: create/update cards row ──
 
     const parallelValue = parallel.trim() || null;
@@ -548,7 +713,7 @@ export default function ProcessBatchPage() {
       // Add a new copy row for this owner (FIFO tracking)
       const { error: copyErr } = await supabase
         .from("card_copies")
-        .insert({ card_id: existing.id, owner: owner || "Joint", sold: false, storage_location: bagOverride.trim() || currentBag || null });
+        .insert({ card_id: existing.id, owner: owner || "Joint", sold: false, storage_location: effectiveBag });
       if (copyErr) { setError(copyErr.message); setSaving(false); return; }
       // Increment stock on the card row
       const { error: updateErr } = await supabase
@@ -600,7 +765,7 @@ export default function ProcessBatchPage() {
       if (insertErr) { setError(insertErr.message); setSaving(false); return; }
       // Insert copy rows for each unit of stock
       const qty = Number(stock) || 1;
-      const copyRows = Array.from({ length: qty }, () => ({ card_id: (newCard as any).id, owner: owner || "Joint", sold: false, storage_location: bagOverride.trim() || currentBag || null }));
+      const copyRows = Array.from({ length: qty }, () => ({ card_id: (newCard as any).id, owner: owner || "Joint", sold: false, storage_location: effectiveBag }));
       await supabase.from("card_copies").insert(copyRows);
     }
 
@@ -651,11 +816,55 @@ export default function ProcessBatchPage() {
     setSelectedSlotId(null);
     setBagOverride("");
 
+    // After saving, check if we need to find the next available bag (backfill)
+    // Re-query to find if current bag is now full and there's a lower bag with space
     const newCount = bagCount + 1;
-    setBagCount(newCount);
     if (newCount >= BAG_CAPACITY) {
-      setShowBagPrompt(true);
+      // Current bag just filled — find next available (could be a lower bag with sold slots)
+      const { data: copies } = await supabase
+        .from("card_copies")
+        .select("storage_location, sold")
+        .like("storage_location", `%${currentSuffix}`);
+
+      // paginate if needed
+      let allCopies = copies ?? [];
+      if (allCopies.length === 1000) {
+        let from = 1000;
+        while (true) {
+          const { data: more } = await supabase
+            .from("card_copies")
+            .select("storage_location, sold")
+            .like("storage_location", `%${currentSuffix}`)
+            .range(from, from + 999);
+          if (!more || more.length === 0) break;
+          allCopies = allCopies.concat(more);
+          if (more.length < 1000) break;
+          from += 1000;
+        }
+      }
+
+      const bagMap: Record<string, number> = {};
+      for (const row of allCopies) {
+        const loc = row.storage_location as string;
+        if (!row.sold) bagMap[loc] = (bagMap[loc] ?? 0) + 1;
+        else if (!(loc in bagMap)) bagMap[loc] = 0;
+      }
+      const sorted = Object.entries(bagMap).sort((a, b) => {
+        const pa = parseBag(a[0]), pb = parseBag(b[0]);
+        return (pa?.num ?? 0) - (pb?.num ?? 0);
+      });
+      const available = sorted.find(([bag, count]) => bag !== currentBag && count < BAG_CAPACITY);
+      if (available) {
+        // Backfill bag available — show modal, do NOT advance silently
+        setCurrentBag(available[0]);
+        setBagCount(available[1]);
+        setBagChangedTo(available[0]);
+      } else {
+        setBagCount(newCount);
+        setShowBagPrompt(true);
+      }
     } else {
+      setBagCount(newCount);
       advanceCard();
     }
   }
@@ -702,15 +911,41 @@ export default function ProcessBatchPage() {
           {selectedBinder && checklist.length > 0 && (
             <p className="mt-2 text-xs text-emerald-600 font-medium">{checklist.length} entries loaded from checklist</p>
           )}
-          <label className="mt-3 block">
-            <span className="text-sm font-medium text-zinc-700">Starting bag (e.g. 1AAA)</span>
-            <input
-              value={currentBag}
-              onChange={e => setCurrentBag(e.target.value)}
-              placeholder="1AAA"
-              className="mt-1 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none"
-            />
-          </label>
+          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+            <p className="text-sm font-semibold text-zinc-700">📦 Bag assignment</p>
+            <div className="flex items-center gap-3">
+              <div className="flex-1">
+                <span className="text-xs text-zinc-500">Current suffix (set identifier)</span>
+                <div className="mt-1 flex items-center gap-2">
+                  <input
+                    value={currentSuffix}
+                    onChange={e => setCurrentSuffix(e.target.value.toUpperCase())}
+                    className="w-24 rounded-xl border border-slate-300/70 bg-white px-3 py-2 text-sm font-mono text-zinc-900 outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setCurrentSuffix(nextSuffix(currentSuffix))}
+                    className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-100"
+                  >
+                    New set → {nextSuffix(currentSuffix)}
+                  </button>
+                </div>
+              </div>
+            </div>
+            {bagStatusLoading
+              ? <p className="text-xs text-zinc-400">Checking existing bags...</p>
+              : bagStatus && <p className="text-xs font-medium text-teal-700">✓ {bagStatus}</p>
+            }
+            <div>
+              <span className="text-xs text-zinc-500">Override starting bag</span>
+              <input
+                value={currentBag}
+                onChange={e => setCurrentBag(e.target.value.toUpperCase())}
+                placeholder="e.g. 2AAA"
+                className="mt-1 w-full rounded-xl border border-slate-300/70 bg-white px-3 py-2 text-sm font-mono text-zinc-900 outline-none"
+              />
+            </div>
+          </div>
           <label className="mt-3 block">
             <span className="text-sm font-medium text-zinc-700">Owner</span>
             <select
@@ -772,16 +1007,50 @@ export default function ProcessBatchPage() {
 
   return (
     <div className="space-y-6">
+      {/* BAG FULL — need a new bag */}
       {showBagPrompt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="rounded-3xl bg-white p-8 shadow-xl max-w-sm w-full space-y-4">
-            <h2 className="text-lg font-bold text-zinc-900">Bag {currentBag} is full!</h2>
-            <p className="text-sm text-zinc-600">Seal it and get the next bag ready. Press confirm when ready.</p>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+          <div className="rounded-3xl bg-white p-8 shadow-2xl max-w-md w-full space-y-5 border-4 border-amber-400">
+            <div className="text-center">
+              <p className="text-5xl mb-2">📦</p>
+              <h2 className="text-2xl font-black text-zinc-900">Bag {currentBag} is full</h2>
+              <p className="text-sm text-zinc-500 mt-1">Seal it, then get a new bag and write this label on it:</p>
+            </div>
+            <div className="rounded-2xl bg-amber-400 p-6 text-center">
+              <p className="text-xs font-bold uppercase tracking-widest text-amber-900 mb-1">New bag label</p>
+              <p className="text-6xl font-black text-white tracking-wider">{nextBagInSet(currentBag)}</p>
+            </div>
+            <p className="text-center text-sm text-zinc-600">Do not press confirm until the new bag is in your hand and labelled.</p>
             <button
-              onClick={() => { setCurrentBag(nextBag(currentBag)); setBagCount(0); setShowBagPrompt(false); advanceCard(); }}
-              className="w-full rounded-full bg-amber-500 px-5 py-3 text-sm font-semibold text-white hover:bg-amber-600"
+              onClick={() => { setCurrentBag(nextBagInSet(currentBag)); setBagCount(0); setShowBagPrompt(false); advanceCard(); }}
+              className="w-full rounded-full bg-amber-500 px-5 py-4 text-base font-black text-white hover:bg-amber-600 shadow-lg"
             >
-              Confirm — move to {nextBag(currentBag)}
+              ✓ Bag {nextBagInSet(currentBag)} is labelled — continue
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* BAG CHANGED (backfill) — must acknowledge before continuing */}
+      {bagChangedTo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+          <div className="rounded-3xl bg-white p-8 shadow-2xl max-w-md w-full space-y-5 border-4 border-teal-400">
+            <div className="text-center">
+              <p className="text-5xl mb-2">🔄</p>
+              <h2 className="text-2xl font-black text-zinc-900">Bag changed!</h2>
+              <p className="text-sm text-zinc-500 mt-1">A bag with free space was found. Next cards go into:</p>
+            </div>
+            <div className="rounded-2xl bg-teal-500 p-6 text-center">
+              <p className="text-xs font-bold uppercase tracking-widest text-teal-100 mb-1">Put next card in</p>
+              <p className="text-6xl font-black text-white tracking-wider">{bagChangedTo}</p>
+              <p className="text-sm text-teal-100 mt-2">{bagCount}/{BAG_CAPACITY} slots used</p>
+            </div>
+            <p className="text-center text-sm text-zinc-600">Find this bag before pressing continue.</p>
+            <button
+              onClick={() => { setBagChangedTo(null); advanceCard(); }}
+              className="w-full rounded-full bg-teal-600 px-5 py-4 text-base font-black text-white hover:bg-teal-700 shadow-lg"
+            >
+              ✓ I have bag {bagChangedTo} — continue
             </button>
           </div>
         </div>
@@ -792,14 +1061,50 @@ export default function ProcessBatchPage() {
           <p className="text-sm text-zinc-500">Batch: {selectedBatch} {selectedBinder && `| Checklist: ${binderSets.find(b => b.id === selectedBinder)?.title}`} {category && `| ${category}`}</p>
         </div>
         <div className="flex items-center gap-3">
-          {currentBag && (
-            <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">📦 {currentBag} ({bagCount}/{BAG_CAPACITY})</span>
-          )}
           <button onClick={() => { if (currentIndex > 0) { setCurrentIndex(currentIndex - 1); setTitle(""); setCardNumber(""); setOcrRawText(""); setMatchConfidence(""); } }} disabled={currentIndex === 0} className="rounded-full border border-slate-300 px-4 py-2 text-sm text-zinc-700 hover:bg-slate-50 disabled:opacity-40">← Back</button>
           <button onClick={handleSkip} className="rounded-full border border-slate-300 px-4 py-2 text-sm text-zinc-700 hover:bg-slate-50">Skip</button>
           <button onClick={() => { setSelectedBatch(null); setPairs([]); clearProgress(); }} className="rounded-full border border-slate-300 px-4 py-2 text-sm text-zinc-700 hover:bg-slate-50">Back</button>
         </div>
       </div>
+
+      {/* CURRENT BAG BANNER — always visible during scanning */}
+      {currentBag && (
+        <div className={`rounded-2xl p-4 flex items-center justify-between ${
+          bagCount >= BAG_CAPACITY - 3
+            ? "bg-red-500 border-2 border-red-600"
+            : bagCount >= BAG_CAPACITY - 8
+            ? "bg-amber-400 border-2 border-amber-500"
+            : "bg-zinc-900 border-2 border-zinc-700"
+        }`}>
+          <div className="flex items-center gap-4">
+            <span className="text-3xl">📦</span>
+            <div>
+              <p className={`text-xs font-bold uppercase tracking-widest ${
+                bagCount >= BAG_CAPACITY - 3 ? "text-red-100" : bagCount >= BAG_CAPACITY - 8 ? "text-amber-900" : "text-zinc-400"
+              }`}>Current bag — put this card in:</p>
+              <p className={`text-4xl font-black tracking-wider ${
+                bagCount >= BAG_CAPACITY - 3 ? "text-white" : bagCount >= BAG_CAPACITY - 8 ? "text-amber-900" : "text-white"
+              }`}>{bagOverride.trim() || currentBag}</p>
+            </div>
+          </div>
+          <div className="text-right">
+            <p className={`text-3xl font-black ${
+              bagCount >= BAG_CAPACITY - 3 ? "text-white" : bagCount >= BAG_CAPACITY - 8 ? "text-amber-900" : "text-zinc-300"
+            }`}>{bagCount}<span className="text-lg font-normal">/{BAG_CAPACITY}</span></p>
+            <div className="mt-1 w-32 h-2 rounded-full bg-black/20 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${
+                  bagCount >= BAG_CAPACITY - 3 ? "bg-white" : bagCount >= BAG_CAPACITY - 8 ? "bg-amber-900" : "bg-orange-400"
+                }`}
+                style={{ width: `${Math.min(100, (bagCount / BAG_CAPACITY) * 100)}%` }}
+              />
+            </div>
+            {bagCount >= BAG_CAPACITY - 3 && (
+              <p className="text-xs font-bold text-white mt-1">⚠ Almost full!</p>
+            )}
+          </div>
+        </div>
+      )}
 
       {error && <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
 

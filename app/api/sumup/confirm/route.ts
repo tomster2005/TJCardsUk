@@ -1,33 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Ratelimit } from "@upstash/ratelimit";
-import { Redis } from "@upstash/redis";
-
-const ratelimit = new Ratelimit({
-  redis: Redis.fromEnv(),
-  limiter: Ratelimit.slidingWindow(10, "1 m"),
-  prefix: "rl:confirm",
-});
+import { rejectForbiddenOrigin } from "@/lib/api/origin";
+import { limiters, getIp, checkDualLimit } from "@/lib/api/ratelimit";
 
 export async function GET(request: NextRequest) {
-  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "anonymous";
-  const { success } = await ratelimit.limit(ip);
-  if (!success) {
-    return NextResponse.json({ error: "Too many requests. Please try again shortly." }, { status: 429 });
-  }
+  const ip = getIp(request);
+  // confirm is polled by the success page; use checkoutId as the user-scoped
+  // key so each checkout gets its own bucket rather than sharing per-user.
+  const checkoutId = request.nextUrl.searchParams.get("checkoutId")?.trim() ?? null;
+  const limited = await checkDualLimit(limiters.confirm, ip, checkoutId);
+  if (limited) return limited;
 
-  // Only allow requests from the same origin
-  const origin = request.headers.get("origin");
-  const host = request.headers.get("host");
-  if (origin && host && !origin.includes(host)) {
-    return NextResponse.json({ error: "Forbidden." }, { status: 403 });
-  }
+  const forbidden = rejectForbiddenOrigin(request);
+  if (forbidden) return forbidden;
 
   const token = process.env.SUMUP_API_KEY?.trim();
   if (!token) {
     return NextResponse.json({ error: "Missing SUMUP_API_KEY." }, { status: 500 });
   }
 
-  const checkoutId = request.nextUrl.searchParams.get("checkoutId")?.trim();
   if (!checkoutId) {
     return NextResponse.json({ error: "checkoutId is required." }, { status: 400 });
   }
@@ -45,10 +35,7 @@ export async function GET(request: NextRequest) {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     return NextResponse.json(
-      {
-        error: data?.message || "Unable to confirm SumUp checkout.",
-        details: data,
-      },
+      { error: data?.message || "Unable to confirm SumUp checkout." },
       { status: response.status },
     );
   }
@@ -56,8 +43,5 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     checkoutId,
     status: data?.status || "UNKNOWN",
-    amount: data?.amount,
-    currency: data?.currency,
-    raw: data,
   });
 }

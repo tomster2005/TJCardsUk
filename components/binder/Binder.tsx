@@ -8,6 +8,7 @@ import { VaultLoader } from "@/components/VaultLoader";
 import { EmptyState } from "@/components/EmptyState";
 import HTMLFlipBook from "react-pageflip";
 import { UserBindersView } from "./UserBinders";
+import { thumbUrl } from "@/lib/images";
 
 type BinderSet = {
   id: string;
@@ -69,7 +70,7 @@ function PocketCell({ card, isActive, onSelect, onToggleCollected, dimmed }: {
         </div>
       ) : (
         <>
-          <img src={displayImage!} alt={card.player_name} className="h-full w-full object-cover transition-transform duration-400 hover:scale-[1.06]" />
+          <img src={thumbUrl(displayImage!, 120)} alt={card.player_name} loading="lazy" decoding="async" width={120} height={168} className="h-full w-full object-cover transition-transform duration-400 hover:scale-[1.06]" />
           {/* Grey overlay for uncollected cards */}
           {!card.collected && (
             <div className="pointer-events-none absolute inset-0" style={{ background: "rgba(80,80,80,0.55)", mixBlendMode: "saturation" }} />
@@ -149,6 +150,16 @@ function UploadModal({ card, onClose, onUploaded }: {
     const file = fileRef.current?.files?.[0];
     if (!file || !user) return;
 
+    const ALLOWED = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!ALLOWED.includes(file.type)) {
+      setMessage('Error: Only JPEG, PNG and WEBP images are allowed.');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setMessage('Error: Image must be under 10 MB.');
+      return;
+    }
+
     setUploading(true);
     setMessage("");
 
@@ -164,24 +175,26 @@ function UploadModal({ card, onClose, onUploaded }: {
 
       const username = profile?.username || "Anonymous";
 
-      const ext = file.name.split(".").pop();
-      const path = `personal/${user.id}/${card.id}_${Date.now()}.${ext}`;
+      const extMap: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+      const ext = extMap[file.type] ?? 'jpg';
+      const storagePath = `${user.id}/${card.id}_${Date.now()}.${ext}`;
       const { error: uploadError } = await supabase.storage
-        .from("card-images")
-        .upload(path, file);
+        .from("personal-card-images")
+        .upload(storagePath, file, { contentType: file.type });
 
       if (uploadError) throw uploadError;
 
-      const { data: urlData } = supabase.storage
-        .from("card-images")
-        .getPublicUrl(path);
+      // Generate a signed URL (1 hour) just for the immediate UI feedback
+      const { data: signedData } = await supabase.storage
+        .from("personal-card-images")
+        .createSignedUrl(storagePath, 3600);
 
-      const publicUrl = urlData.publicUrl;
+      const signedUrl = signedData?.signedUrl ?? null;
 
-      // Save to personal images
+      // Save storage path — NOT a public URL
       const { error: personalError } = await supabase
         .from("personal_card_images")
-        .upsert({ user_id: user.id, checklist_id: card.id, image_url: publicUrl, prefer_personal: true }, { onConflict: "user_id,checklist_id" });
+        .upsert({ user_id: user.id, checklist_id: card.id, storage_path: storagePath, image_url: signedUrl, prefer_personal: true }, { onConflict: "user_id,checklist_id" });
 
       if (personalError) throw personalError;
 
@@ -194,7 +207,7 @@ function UploadModal({ card, onClose, onUploaded }: {
       if (shareWithCommunity) {
         await supabase.from("community_images").insert({
           checklist_id: card.id,
-          image_url: publicUrl,
+          image_url: signedUrl,
           uploaded_by: user.id,
           username,
           status: "pending",
@@ -223,7 +236,7 @@ function UploadModal({ card, onClose, onUploaded }: {
           Your photo saves to your binder only. If an official photo exists, your binder will show that by default — but your photo is always kept.
         </p>
 
-        <input ref={fileRef} type="file" accept="image/*" className="mt-4 w-full text-sm" />
+        <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" className="mt-4 w-full text-sm" />
 
         <label className="mt-3 flex items-center gap-2 cursor-pointer">
           <input
@@ -427,109 +440,57 @@ export function BinderView() {
     if (!supabase) return;
 
     setChecklistLoading(true);
-    const activeSet = sets.find((s) => s.id === activeSetId);
-    const activeSetTitle = activeSet?.title ?? "";
 
-    const checklistData = await fetchAll<any>(
-      supabase.from("binder_checklist").select("*").eq("set_id", activeSetId).order("page_number").order("position")
-    );
+    // Single RPC call — joins binder_checklist, cards, community_images,
+    // personal_card_images and user_binder_progress server-side.
+    // Replaces: fetchAll(checklist) + fetchAll(progress) + fetchAll(cards)
+    //           + chunked community_images loop + fetchAll(personal_card_images)
+    const { data: rpcRows, error } = await supabase
+      .rpc("get_binder_checklist", {
+        p_set_id:  activeSetId,
+        p_user_id: user?.id ?? null,
+      });
 
-    if (!checklistData || checklistData.length === 0) {
+    if (error || !rpcRows || rpcRows.length === 0) {
       setChecklist([]);
       setChecklistLoading(false);
       return;
     }
 
-    // If we don't have the set title yet, fetch it now so the cards query works
-    const setTitle = activeSetTitle || await supabase
-      .from("binder_sets").select("title").eq("id", activeSetId).single()
-      .then(({ data }) => data?.title ?? "");
-
-    const checklistIds = checklistData.map((c) => c.id);
-
-    // Fetch images + progress in parallel after the binder is already visible
-    const [progressRows, cardsData, communityData, personalData] = await Promise.all([
-      user
-        ? fetchAll<{ checklist_id: string }>(supabase.from("user_binder_progress").select("checklist_id").eq("user_id", user.id))
-        : Promise.resolve([]),
-      fetchAll<any>(supabase.from("cards").select("card_number, image_url, stock, set_name, parallel").eq("set_name", setTitle)),
-      (async () => {
-        const CHUNK = 20;
-        let results: any[] = [];
-        for (let i = 0; i < checklistIds.length; i += CHUNK) {
-          const chunk = checklistIds.slice(i, i + CHUNK);
-          const { data } = await supabase.from("community_images").select("checklist_id, image_url, username").eq("status", "approved").in("checklist_id", chunk);
-          if (data) results = results.concat(data);
-        }
-        return results;
-      })(),
-      user
-        ? fetchAll<any>(supabase.from("personal_card_images").select("checklist_id, image_url, prefer_personal").eq("user_id", user.id))
-        : Promise.resolve([]),
-    ]);
-
-    const collectedSet = new Set<string>(progressRows.map((p) => p.checklist_id));
-
-
-    // Two maps keyed by card_number:
-    // baseImageMap  — image from a base (no parallel) card entry
-    // stockMap      — total stock across all variants
-    // fallbackImageMap — best image from any variant (used only if no base image exists)
-    const baseImageMap = new Map<string, string>();
-    const fallbackImageMap = new Map<string, string>();
-    const stockMap = new Map<string, number>();
-    if (cardsData) {
-      for (const c of cardsData) {
-        const isBase = !c.parallel || c.parallel.trim() === "";
-        stockMap.set(c.card_number, (stockMap.get(c.card_number) || 0) + (c.stock || 0));
-        if (isBase && c.image_url && !baseImageMap.has(c.card_number)) {
-          baseImageMap.set(c.card_number, c.image_url);
-        }
-        if (c.image_url && !fallbackImageMap.has(c.card_number)) {
-          fallbackImageMap.set(c.card_number, c.image_url);
+    // Generate signed URLs for personal images stored in the private bucket.
+    // All other image URLs are already public and need no signing.
+    const needsSigning = rpcRows.filter((r: any) => r.storage_path);
+    const signedMap = new Map<string, string>();
+    if (needsSigning.length > 0) {
+      const { data: signedResults } = await supabase.storage
+        .from("personal-card-images")
+        .createSignedUrls(needsSigning.map((r: any) => r.storage_path), 3600);
+      if (signedResults) {
+        for (let i = 0; i < needsSigning.length; i++) {
+          const url = signedResults[i]?.signedUrl;
+          if (url) signedMap.set(needsSigning[i].storage_path, url);
         }
       }
     }
 
-    // Build image lookup: for each checklist card_number, find the best image.
-    // Priority: cards table (no parallel) > cards table (any) > community_images (Admin, no parallel) > community_images (Admin, any)
-    const adminImageLookup = new Map<string, string>(); // keyed by checklist_id
-    const communityLookup = new Map<string, { image_url: string; username: string }>();
-
-    if (communityData) {
-      for (const ci of communityData) {
-        if (ci.username === "Admin") {
-          if (!adminImageLookup.has(ci.checklist_id)) adminImageLookup.set(ci.checklist_id, ci.image_url);
-        } else {
-          if (!communityLookup.has(ci.checklist_id)) communityLookup.set(ci.checklist_id, { image_url: ci.image_url, username: ci.username || "Anonymous" });
-        }
-      }
-    }
-    const personalLookup = new Map<string, { image_url: string; prefer_personal: boolean }>();
-    if (personalData) {
-      for (const p of personalData) {
-        personalLookup.set(p.checklist_id, { image_url: p.image_url, prefer_personal: p.prefer_personal ?? false });
-      }
-    }
-
-    const merged: ChecklistCard[] = checklistData.map((item) => {
-      const cardImage = baseImageMap.get(item.card_number) ?? fallbackImageMap.get(item.card_number) ?? null;
-      const adminImage = adminImageLookup.get(item.id);
-      const community = communityLookup.get(item.id);
-      const officialImage = adminImage || cardImage;
-      const communityImage = community && community.username !== "Admin" ? community.image_url : null;
-      const communityCredit = community && community.username !== "Admin" ? community.username : null;
-      return {
-        ...item,
-        image_url: officialImage,
-        stock: stockMap.get(item.card_number) || 0,
-        community_image: communityImage,
-        community_credit: communityCredit,
-        personal_image: personalLookup.get(item.id)?.image_url || null,
-        prefer_personal: personalLookup.get(item.id)?.prefer_personal ?? false,
-        collected: collectedSet.has(item.id),
-      };
-    });
+    const merged: ChecklistCard[] = rpcRows.map((row: any) => ({
+      id:               row.id,
+      card_number:      row.card_number,
+      player_name:      row.player_name,
+      team:             row.team,
+      parallel:         row.parallel,
+      page_number:      row.page_number,
+      position:         row.pos,
+      image_url:        row.image_url ?? null,
+      stock:            row.stock ?? 0,
+      community_image:  row.community_image ?? null,
+      community_credit: row.community_credit ?? null,
+      personal_image:   row.storage_path
+        ? (signedMap.get(row.storage_path) ?? row.personal_image ?? null)
+        : (row.personal_image ?? null),
+      prefer_personal:  row.prefer_personal ?? false,
+      collected:        row.collected ?? false,
+    }));
 
     setChecklist(merged);
     setSelectedCard(null);
@@ -647,12 +608,13 @@ export function BinderView() {
   const tabBar = (
     <div className="flex gap-2">
       {(["official", "custom"] as const).map((t) => (
-        <button
-          key={t}
-          onClick={() => setBinderTab(t)}
-          className={`rounded-full px-4 py-1.5 text-sm font-semibold transition ${binderTab === t ? "btn-gold" : "border border-[var(--vault-border)] text-[rgba(28,25,23,0.6)]"}`}
-        >
-          {t === "official" ? "Official Binders" : "My Binders"}
+        <button key={t} onClick={() => setBinderTab(t)}
+          className="rounded-full px-5 py-2 text-[13px] font-semibold transition-all duration-150"
+          style={binderTab === t
+            ? { background: "#F26A21", color: "#fff", boxShadow: "0 4px 12px rgba(242,106,33,0.35)" }
+            : { background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.6)", border: "1px solid rgba(255,255,255,0.08)" }
+          }>
+          {t === "official" ? "All Binders" : "My Binders"}
         </button>
       ))}
     </div>
@@ -691,22 +653,34 @@ export function BinderView() {
   // Binder selection screen
   if (!activeSetId) {
     return (
-      <div className="space-y-6 animate-fade-up">
-        {tabBar}
+      <div className="space-y-5 animate-fade-up">
 
-        {/* Compact hero */}
-        <div className="relative overflow-hidden rounded-2xl px-6 py-6 flex items-center justify-between" style={{ background: "linear-gradient(150deg, #1a0e06 0%, #2d1a0a 50%, #1a0e06 100%)", border: "1px solid rgba(200,155,60,0.2)" }}>
-          <div className="pointer-events-none absolute inset-0 opacity-[0.035]" style={{ backgroundImage: "linear-gradient(rgba(200,155,60,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(200,155,60,0.5) 1px, transparent 1px)", backgroundSize: "48px 48px" }} />
-          <div className="relative z-10">
-            <span className="text-[10px] font-bold uppercase tracking-[0.4em] text-[#c89b3c]">The Vault</span>
-            <h1 className="mt-1 text-2xl font-black text-white font-display">Your Binders</h1>
-            <p className="mt-1 text-[13px] text-[rgba(255,255,255,0.45)]">Track your collection across {sets.length} set{sets.length !== 1 ? "s" : ""}</p>
-          </div>
-          <div className="relative z-10 flex h-12 w-12 items-center justify-center rounded-xl" style={{ background: "rgba(200,155,60,0.12)", border: "1px solid rgba(200,155,60,0.3)", boxShadow: "0 0 20px rgba(200,155,60,0.2)" }}>
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#c89b3c" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" />
-              <path d="M8 7h6" /><path d="M8 11h4" />
-            </svg>
+        {/* Tab bar */}
+        <div className="flex gap-2">
+          {(["official", "custom"] as const).map((t) => (
+            <button key={t} onClick={() => setBinderTab(t)}
+              className="rounded-full px-5 py-2 text-[13px] font-semibold transition-all duration-150"
+              style={binderTab === t
+                ? { background: "#F26A21", color: "#fff", boxShadow: "0 4px 12px rgba(242,106,33,0.35)" }
+                : { background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.6)", border: "1px solid rgba(255,255,255,0.08)" }
+              }>
+              {t === "official" ? "All Binders" : "My Binders"}
+            </button>
+          ))}
+        </div>
+
+        {/* Header */}
+        <div className="rounded-3xl p-7" style={{ background: "#FBF8F2" }}>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-black text-zinc-900">Your Binders</h1>
+              <p className="mt-1 text-[14px]" style={{ color: "rgba(0,0,0,0.45)" }}>Track your collection across all your sets.</p>
+            </div>
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl" style={{ background: "rgba(8,123,117,0.1)", border: "1px solid rgba(8,123,117,0.2)" }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#087B75" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" />
+              </svg>
+            </div>
           </div>
         </div>
 
@@ -723,86 +697,68 @@ export function BinderView() {
                 tabIndex={isHidden ? -1 : 0}
                 onClick={() => !isHidden && setActiveSetId(s.id)}
                 onKeyDown={(e) => e.key === "Enter" && !isHidden && setActiveSetId(s.id)}
-                className={`group relative flex flex-col overflow-hidden rounded-2xl transition-all duration-300 ${
-                  isHidden ? "cursor-default opacity-40" : "cursor-pointer hover:-translate-y-1.5 hover:shadow-[0_8px_40px_rgba(200,155,60,0.2)]"
+                className={`group relative flex flex-col overflow-hidden rounded-2xl transition-all duration-250 ${
+                  isHidden ? "cursor-default opacity-40" : "cursor-pointer hover:-translate-y-1.5"
                 }`}
                 style={{
-                  background: "linear-gradient(160deg, #1e1108 0%, #2d1a0a 50%, #1a0e06 100%)",
-                  border: "1px solid rgba(200,155,60,0.18)",
+                  background: "linear-gradient(145deg, #0d1a1a, #0a1f1f)",
+                  border: "1px solid rgba(8,123,117,0.2)",
+                  boxShadow: "0 4px 20px rgba(0,0,0,0.3)",
                   animationDelay: `${idx * 80}ms`,
                 }}
               >
-                <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-500 group-hover:opacity-100" style={{ background: "linear-gradient(135deg, rgba(200,155,60,0.1) 0%, transparent 60%)" }} />
-                <div className="pointer-events-none absolute inset-0 rounded-2xl opacity-0 transition-opacity duration-300 group-hover:opacity-100" style={{ boxShadow: "inset 0 0 0 1px rgba(200,155,60,0.45)" }} />
+                {/* Decorative blobs */}
+                <div className="pointer-events-none absolute -top-8 -right-8 h-32 w-32 rounded-full opacity-60" style={{ background: "radial-gradient(circle, rgba(242,106,33,0.3), transparent 70%)", filter: "blur(20px)" }} />
+                <div className="pointer-events-none absolute -bottom-8 -left-8 h-24 w-24 rounded-full opacity-40" style={{ background: "radial-gradient(circle, rgba(8,123,117,0.4), transparent 70%)", filter: "blur(16px)" }} />
 
                 <div className="relative z-10 flex flex-1 flex-col p-5">
-                  {/* Top row */}
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg" style={{ background: "rgba(200,155,60,0.12)", border: "1px solid rgba(200,155,60,0.25)" }}>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c89b3c" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" />
-                      </svg>
-                    </div>
-                    <span className="rounded-full px-2.5 py-0.5 text-[10px] font-bold tracking-wide text-[#c89b3c]" style={{ background: "rgba(200,155,60,0.12)", border: "1px solid rgba(200,155,60,0.22)" }}>
-                      {s.total_cards} cards
-                    </span>
+                  {/* Icon */}
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl mb-4" style={{ background: "rgba(8,123,117,0.15)", border: "1px solid rgba(8,123,117,0.3)" }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0BA39B" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" />
+                    </svg>
                   </div>
 
-                  {/* Title + description */}
-                  <h3 className="mt-3 text-[16px] font-black leading-snug text-white transition-colors duration-200 group-hover:text-[#f5d97a]">{s.title}</h3>
-                  {s.description && (
-                    <p className="mt-1 text-[11px] leading-relaxed text-[rgba(255,255,255,0.35)]">{s.description}</p>
-                  )}
+                  <h3 className="text-[17px] font-black text-white leading-snug">{s.title}</h3>
+                  {s.description && <p className="mt-1 text-[11px] leading-relaxed" style={{ color: "rgba(255,255,255,0.35)" }}>{s.description}</p>}
 
-                  {/* Progress bar */}
+                  {/* Stats */}
                   {user && prog && (
                     <div className="mt-3">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-[10px] text-[rgba(255,255,255,0.4)]">{prog.collected} / {prog.total} collected</span>
-                        <span className="text-[10px] font-bold text-[#c89b3c]">{pct}%</span>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-[11px]" style={{ color: "rgba(255,255,255,0.4)" }}>{prog.collected} / {prog.total} collected</span>
+                        <span className="text-[11px] font-bold" style={{ color: "#0BA39B" }}>{pct}%</span>
                       </div>
-                      <div className="h-1 w-full rounded-full" style={{ background: "rgba(255,255,255,0.08)" }}>
-                        <div
-                          className="h-1 rounded-full transition-all duration-700"
-                          style={{ width: `${pct}%`, background: "linear-gradient(90deg, #f5d97a, #c89b3c)" }}
-                        />
+                      <div className="h-1.5 w-full rounded-full" style={{ background: "rgba(255,255,255,0.08)" }}>
+                        <div className="h-1.5 rounded-full transition-all duration-700" style={{ width: `${pct}%`, background: "linear-gradient(90deg, #087B75, #0BA39B)" }} />
                       </div>
                     </div>
                   )}
 
-                  {/* Divider */}
-                  <div className="my-3 h-px" style={{ background: "rgba(200,155,60,0.12)" }} />
-
-                  {/* Footer row */}
-                  <div className="flex items-center justify-between gap-3">
-                    {isHidden ? (
-                      <p className="text-[12px] text-[rgba(255,255,255,0.25)]">Not collecting</p>
-                    ) : (
-                      <div className="flex items-center gap-1.5 text-[12px] font-bold text-[#c89b3c] transition-all duration-200 group-hover:gap-2.5">
-                        <span>Open binder</span>
-                        <svg width="13" height="13" viewBox="0 0 14 14" fill="none" className="transition-transform duration-200 group-hover:translate-x-0.5">
-                          <path d="M5 3L9 7L5 11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                        </svg>
-                      </div>
+                  <div className="mt-4 flex items-center justify-between" style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: "12px" }}>
+                    {!isHidden && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setActiveSetId(s.id); }}
+                        className="rounded-xl px-4 py-2 text-[12px] font-bold text-white transition hover:-translate-y-0.5"
+                        style={{ background: "#087B75", boxShadow: "0 4px 12px rgba(8,123,117,0.4)" }}
+                      >
+                        Open Binder
+                      </button>
                     )}
                     {user && (
                       <button
                         onClickCapture={(e) => { e.stopPropagation(); toggleHideSet(s.id); }}
                         onClick={(e) => e.stopPropagation()}
-                        className="flex shrink-0 items-center gap-1.5"
+                        className="flex items-center gap-1.5 ml-auto"
                         title={isHidden ? "Start collecting" : "Stop collecting"}
                       >
-                        <span className="text-[10px] font-semibold" style={{ color: isHidden ? "rgba(255,255,255,0.25)" : "#c89b3c" }}>
+                        <span className="text-[10px] font-semibold" style={{ color: isHidden ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.5)" }}>
                           {isHidden ? "Off" : "Collecting"}
                         </span>
-                        <div
-                          className="relative h-5 w-9 rounded-full transition-all duration-300"
-                          style={{ background: isHidden ? "rgba(255,255,255,0.08)" : "rgba(200,155,60,0.3)", border: `1px solid ${isHidden ? "rgba(255,255,255,0.12)" : "rgba(200,155,60,0.5)"}` }}
-                        >
-                          <div
-                            className="absolute top-0.5 h-4 w-4 rounded-full transition-all duration-300"
-                            style={{ left: isHidden ? "2px" : "calc(100% - 18px)", background: isHidden ? "rgba(255,255,255,0.25)" : "#c89b3c", boxShadow: isHidden ? "none" : "0 0 8px rgba(200,155,60,0.7)" }}
-                          />
+                        <div className="relative h-5 w-9 rounded-full transition-all duration-300"
+                          style={{ background: isHidden ? "rgba(255,255,255,0.08)" : "rgba(8,123,117,0.3)", border: `1px solid ${isHidden ? "rgba(255,255,255,0.12)" : "rgba(8,123,117,0.5)"}` }}>
+                          <div className="absolute top-0.5 h-4 w-4 rounded-full transition-all duration-300"
+                            style={{ left: isHidden ? "2px" : "calc(100% - 18px)", background: isHidden ? "rgba(255,255,255,0.25)" : "#0BA39B", boxShadow: isHidden ? "none" : "0 0 8px rgba(8,123,117,0.7)" }} />
                         </div>
                       </button>
                     )}
@@ -815,7 +771,6 @@ export function BinderView() {
       </div>
     );
   }
-
   return (
     <div className="space-y-6 animate-fade-up">
 
@@ -1036,7 +991,7 @@ export function BinderView() {
                 <div className={`relative h-52 overflow-hidden rounded-xl ${!selectedCard.collected ? "grayscale-[60%] opacity-80" : ""} transition-all duration-300`}>
                   {(selectedCard.personal_image || selectedCard.image_url || selectedCard.community_image) ? (
                     <>
-                      <img src={(selectedCard.personal_image || selectedCard.image_url || selectedCard.community_image)!} alt={selectedCard.player_name} className="h-full w-full object-contain" />
+                      <img src={thumbUrl((selectedCard.personal_image || selectedCard.image_url || selectedCard.community_image)!, 280)} alt={selectedCard.player_name} className="h-full w-full object-contain" />
                       {selectedCard.community_credit && !selectedCard.image_url && !selectedCard.personal_image && (
                         <p className="absolute bottom-2 right-2 rounded-full bg-black/60 px-2 py-0.5 text-[9px] text-white">
                           Photo: {selectedCard.community_credit}

@@ -34,23 +34,40 @@ function LoginForm() {
     const supabase = getBrowserSupabase();
     if (!supabase) { setLoading(false); return; }
 
-    // If input looks like an email use it directly, otherwise look up by username
-    let email = emailOrUsername.trim();
-    if (!email.includes("@")) {
-      const { data } = await supabase.rpc("get_email_by_username", { p_username: email });
-      if (!data) {
-        setError("No account found with that username.");
+    const input = emailOrUsername.trim();
+
+    if (!input.includes("@")) {
+      // ── Username path: resolved server-side, email never exposed ────────
+      // The API route handles lookup + sign-in atomically with rate limiting.
+      const res = await fetch("/api/auth/username-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: input, password }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(payload?.error ?? "Invalid credentials.");
         setLoading(false);
         return;
       }
-      email = data;
-    }
-
-    const { error } = await signIn(email, password);
-    if (error) {
-      setError(error.message ?? String(error));
-      setLoading(false);
-      return;
+      // Restore the session into the browser Supabase client
+      const { error: sessionErr } = await supabase.auth.setSession({
+        access_token: payload.access_token,
+        refresh_token: payload.refresh_token,
+      });
+      if (sessionErr) {
+        setError("Invalid credentials.");
+        setLoading(false);
+        return;
+      }
+    } else {
+      // ── Email path: standard Supabase signIn ─────────────────────────────
+      const { error } = await signIn(input, password);
+      if (error) {
+        setError("Invalid credentials.");
+        setLoading(false);
+        return;
+      }
     }
 
     const { data: { user } } = await supabase.auth.getUser();

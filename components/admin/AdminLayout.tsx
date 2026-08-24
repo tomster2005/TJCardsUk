@@ -4,46 +4,45 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-
-const topNavItems = [{ href: "/", label: "← View Public Site" }, { href: "/profile", label: "Profile" }];
+import { SearchIcon } from "@/components/ui/icons";
 
 const adminNavGroups = [
   {
     title: "Overview",
     key: "overview",
-    items: [{ href: "/admin", label: "Dashboard" }],
+    items: [{ href: "/admin", label: "Dashboard", icon: "⊞" }],
   },
   {
     title: "Catalogue",
     key: "catalogue",
     items: [
-      { href: "/admin/cards", label: "Cards" },
-      { href: "/admin/cards/new", label: "Add Card" },
-      { href: "/admin/bulk-upload", label: "Bulk Upload" },
-      { href: "/admin/image-queue", label: "Image Queue" },
-      { href: "/admin/binders", label: "Binders" },
-      { href: "/admin/user-binders", label: "User Binders" },
-      { href: "/admin/community-images", label: "Community Images" },
+      { href: "/admin/cards", label: "Cards", icon: "🃏" },
+      { href: "/admin/cards/new", label: "Add Card", icon: "➕" },
+      { href: "/admin/bulk-upload", label: "Bulk Upload", icon: "📤" },
+      { href: "/admin/image-queue", label: "Image Queue", icon: "🖼️" },
+      { href: "/admin/binders", label: "Binders", icon: "📒" },
+      { href: "/admin/user-binders", label: "User Binders", icon: "👤" },
+      { href: "/admin/community-images", label: "Community Images", icon: "🌍" },
     ],
   },
   {
     title: "Database",
     key: "database",
     items: [
-      { href: "/admin/sets", label: "Sets" },
-      { href: "/admin/players", label: "Players" },
-      { href: "/admin/teams", label: "Teams" },
+      { href: "/admin/sets", label: "Sets", icon: "📦" },
+      { href: "/admin/players", label: "Players", icon: "👤" },
+      { href: "/admin/teams", label: "Teams", icon: "🏟️" },
     ],
   },
   {
     title: "System",
     key: "system",
     items: [
-      { href: "/admin/users", label: "Users" },
-      { href: "/admin/reports", label: "Reports" },
-      { href: "/admin/discount-codes", label: "Discount Codes" },
-      { href: "/admin/storage", label: "Storage" },
-      { href: "/admin/settings", label: "Settings" },
+      { href: "/admin/users", label: "Users", icon: "👥" },
+      { href: "/admin/reports", label: "Orders", icon: "🧾" },
+      { href: "/admin/discount-codes", label: "Discount Codes", icon: "🏷️" },
+      { href: "/admin/storage", label: "Storage", icon: "📦" },
+      { href: "/admin/settings", label: "Settings", icon: "⚙️" },
     ],
   },
 ];
@@ -51,9 +50,8 @@ const adminNavGroups = [
 export function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { signOut, user, loading, isAdmin, profileLoading } = useAuth();
+  const { signOut, user, loading, isAdmin, role, profileLoading } = useAuth();
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
-    // Only open the group that contains the current active page
     const initial: Record<string, boolean> = {};
     for (const group of adminNavGroups) {
       initial[group.key] = group.items.some(
@@ -67,104 +65,142 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!authReady) return;
-    if (!user) {
-      router.push("/login");
-    } else if (!isAdmin) {
-      router.push("/dashboard");
-    }
-  }, [authReady, user, isAdmin, router]);
+    if (!user) router.push("/login");
+    else if (role !== null && role !== "admin") router.push("/dashboard");
+  }, [authReady, user, role, router]);
 
-  // Show loading while auth + profile are resolving
   if (!authReady) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#f8f6f2]">
+      <div className="flex min-h-screen items-center justify-center" style={{ background: "#0D1212" }}>
         <div className="text-center space-y-3">
-          <div className="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-amber-200 border-t-amber-500" />
-          <p className="text-sm text-zinc-500">Checking access…</p>
+          <div className="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-[rgba(242,106,33,0.2)] border-t-[#F26A21]" />
+          <p className="text-sm" style={{ color: "rgba(255,255,255,0.4)" }}>Checking access…</p>
         </div>
       </div>
     );
   }
 
-  // Don't render admin content for non-admin users (redirect is in progress)
-  if (!user || !isAdmin) {
-    return null;
-  }
+  if (!user || (role !== null && role !== "admin")) return null;
+
+  const isActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(200,155,60,0.18),_transparent_35%),linear-gradient(150deg,_#fcfbf8_0%,_#f6f2e9_100%)] text-zinc-800">
-      <header className="border-b border-slate-200/80 bg-white/85 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-6 py-4 lg:px-8">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full border border-amber-400/45 bg-amber-100/90 text-sm font-semibold text-amber-900">
+    <div className="flex min-h-screen" style={{ background: "#0D1212" }}>
+
+      {/* Sidebar */}
+      <aside className="hidden lg:flex flex-col w-[200px] shrink-0 fixed top-0 left-0 h-screen z-30 overflow-y-auto"
+        style={{ background: "#0D1212", borderRight: "1px solid rgba(255,255,255,0.06)" }}>
+
+        {/* Logo */}
+        <div className="px-5 py-5" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+          <Link href="/" className="flex items-center gap-3">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl text-[13px] font-black text-white"
+              style={{ background: "linear-gradient(135deg, #F5854A, #F26A21)", boxShadow: "0 4px 16px rgba(242,106,33,0.4)" }}>
               C
+            </span>
+            <div className="flex flex-col leading-none">
+              <span className="text-[15px] font-bold text-white">Collectra</span>
+              <span className="text-[8px] uppercase tracking-[0.3em]" style={{ color: "rgba(242,106,33,0.6)" }}>Admin</span>
             </div>
-            <div>
-              <p className="text-lg font-semibold text-zinc-900">Collectra</p>
-              <p className="text-xs uppercase tracking-[0.35em] text-zinc-500">Admin</p>
+          </Link>
+        </div>
+
+        {/* Nav */}
+        <nav className="flex-1 px-3 py-4 space-y-4 overflow-y-auto">
+          {adminNavGroups.map((group) => (
+            <div key={group.key}>
+              <button
+                type="button"
+                onClick={() => setOpenGroups((cur) => ({ ...cur, [group.key]: !cur[group.key] }))}
+                className="flex w-full items-center justify-between px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em] transition"
+                style={{ color: "rgba(255,255,255,0.3)" }}
+              >
+                {group.title}
+                <span>{openGroups[group.key] ? "−" : "+"}</span>
+              </button>
+              {openGroups[group.key] && (
+                <div className="mt-1 space-y-0.5">
+                  {group.items.map((item) => {
+                    const active = isActive(item.href);
+                    return (
+                      <Link key={item.href} href={item.href}
+                        className="flex items-center gap-2.5 rounded-xl px-3 py-2 text-[12px] font-medium transition-all duration-150"
+                        style={active
+                          ? { background: "rgba(242,106,33,0.12)", color: "#F26A21", borderLeft: "2px solid #F26A21" }
+                          : { color: "rgba(255,255,255,0.5)", borderLeft: "2px solid transparent" }
+                        }
+                      >
+                        <span className="text-sm">{item.icon}</span>
+                        {item.label}
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ))}
+        </nav>
+
+        {/* Bottom */}
+        <div className="px-3 pb-5 pt-3 space-y-0.5" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+          <Link href="/"
+            className="flex items-center gap-2.5 rounded-xl px-3 py-2 text-[12px] font-medium transition"
+            style={{ color: "rgba(255,255,255,0.5)", borderLeft: "2px solid transparent" }}>
+            ← View Public Site
+          </Link>
+          <Link href="/profile"
+            className="flex items-center gap-2.5 rounded-xl px-3 py-2 text-[12px] font-medium transition"
+            style={{ color: "rgba(255,255,255,0.5)", borderLeft: "2px solid transparent" }}>
+            👤 Profile
+          </Link>
+          <button onClick={() => signOut()}
+            className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-[12px] font-medium transition"
+            style={{ color: "rgba(248,113,113,0.7)", borderLeft: "2px solid transparent" }}>
+            ↩ Logout
+          </button>
+        </div>
+      </aside>
+
+      {/* Main */}
+      <div className="flex flex-col flex-1 min-w-0 lg:ml-[200px]">
+
+        {/* Top bar */}
+        <header className="sticky top-0 z-40 flex items-center gap-4 px-6 py-3"
+          style={{ background: "#0D1212", borderBottom: "1px solid rgba(255,255,255,0.06)", minHeight: "60px" }}>
+
+          {/* Mobile logo */}
+          <Link href="/admin" className="flex items-center gap-2 lg:hidden">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg text-[12px] font-black text-white"
+              style={{ background: "linear-gradient(135deg, #F5854A, #F26A21)" }}>C</span>
+            <span className="text-[14px] font-bold text-white">Admin</span>
+          </Link>
+
+          {/* Search */}
+          <div className="flex-1 max-w-md hidden sm:block">
+            <div className="relative">
+              <SearchIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4" style={{ color: "rgba(255,255,255,0.3)" }} />
+              <input type="text" placeholder="Search cards, players, users..."
+                className="w-full rounded-xl py-2.5 pl-10 pr-4 text-[13px] outline-none"
+                style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.7)" }}
+                readOnly />
             </div>
           </div>
 
-          <nav className="flex flex-wrap items-center gap-2 text-sm text-zinc-600">
-            {topNavItems.map((item) => {
-              const isActive = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
-              return (
-                <Link key={item.href} href={item.href} className={`rounded-full px-3 py-2 transition ${isActive ? "bg-amber-100/90 text-amber-900" : "hover:bg-white hover:text-zinc-900"}`}>
-                  {item.label}
-                </Link>
-              );
-            })}
-            <button type="button" onClick={() => signOut()} className="rounded-full border border-slate-300/80 bg-white px-3 py-2 text-sm text-zinc-700 transition hover:border-amber-300/60 hover:text-zinc-900">
+          <div className="ml-auto flex items-center gap-3">
+            <Link href="/" className="hidden sm:block text-[12px] transition" style={{ color: "rgba(255,255,255,0.4)" }}>← View Public Site</Link>
+            <Link href="/profile" className="hidden sm:block text-[12px] transition" style={{ color: "rgba(255,255,255,0.4)" }}>Profile</Link>
+            <button onClick={() => signOut()}
+              className="rounded-xl px-4 py-2 text-[13px] font-bold text-white transition hover:opacity-90"
+              style={{ background: "#F26A21", boxShadow: "0 4px 12px rgba(242,106,33,0.3)" }}>
               Logout
             </button>
-          </nav>
-        </div>
-      </header>
-
-      <div className="mx-auto flex max-w-7xl flex-col gap-6 px-6 py-6 lg:flex-row lg:px-8">
-        <aside className="w-full rounded-[2rem] border border-slate-300/55 bg-white/90 p-4 shadow-[0_16px_40px_rgba(15,23,42,0.09)] lg:w-72">
-          <div className="rounded-[1.5rem] border border-slate-300/55 bg-[#f8f4ea]/95 p-4">
-            <p className="text-sm uppercase tracking-[0.3em] text-amber-700">Admin tools</p>
-            <h2 className="mt-3 text-xl font-semibold text-zinc-900">Collectra control center</h2>
-            <p className="mt-2 text-sm text-zinc-600">Manage cards, publishing, and reference data from one workspace.</p>
           </div>
+        </header>
 
-          <nav className="mt-4 space-y-3">
-            {adminNavGroups.map((group) => {
-              const isGroupActive = group.items.some((item) => pathname === item.href || pathname.startsWith(`${item.href}/`));
-              const isOpen = openGroups[group.key];
-
-              return (
-                <div key={group.key} className="rounded-2xl border border-slate-300/60 bg-white/80 p-2">
-                  <button
-                    type="button"
-                    onClick={() => setOpenGroups((cur) => ({ ...cur, [group.key]: !cur[group.key] }))}
-                    className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.25em] ${isGroupActive ? "text-amber-800" : "text-zinc-500"}`}
-                  >
-                    <span>{group.title}</span>
-                    <span className="text-zinc-500">{isOpen ? "-" : "+"}</span>
-                  </button>
-
-                  {isOpen ? (
-                    <div className="mt-1 space-y-1">
-                      {group.items.map((item) => {
-                        const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
-                        return (
-                          <Link key={item.href} href={item.href} className={`flex items-center justify-between rounded-xl px-3 py-2 text-sm transition ${isActive ? "bg-amber-100/95 text-amber-900" : "text-zinc-700 hover:bg-slate-100 hover:text-zinc-900"}`}>
-                            <span>{item.label}</span>
-                            <span className="text-xs uppercase tracking-[0.25em] text-zinc-500">&gt;</span>
-                          </Link>
-                        );
-                      })}
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })}
-          </nav>
-        </aside>
-
-        <main className="flex-1">{children}</main>
+        {/* Content */}
+        <main className="flex-1 px-4 py-5 sm:px-6 lg:px-8 pb-20">
+          {children}
+        </main>
       </div>
     </div>
   );

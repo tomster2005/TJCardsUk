@@ -26,7 +26,7 @@ export default function UsersPage() {
     (async () => {
       // Fetch profiles + aggregate order data in parallel
       const [profilesRes, ordersRes] = await Promise.all([
-        supabase.from("profiles").select("id, username, role, created_at").order("created_at", { ascending: false }),
+        supabase.rpc("get_all_profiles"),
         supabase.from("orders").select("user_id, total"),
       ]);
 

@@ -6,6 +6,7 @@ import type { CatalogueCard } from "@/lib/demo-data/catalogue";
 import { ArrowUpIcon, SearchIcon, SparkleIcon } from "@/components/ui/icons";
 import { useCart } from "@/contexts/CartContext";
 import { formatGBP } from "@/lib/currency";
+import { thumbUrl } from "@/lib/images";
 
 type Variant = {
   id: string;
@@ -266,7 +267,14 @@ export function CatalogueCardDetail({ card, relatedCards = [], variants = [] }: 
             {relatedCards.map((item) => (
               <Link key={item.id} href={`/catalogue/${item.setSlug}/${item.cardSlug}`} className="group rounded-2xl border border-slate-300/60 bg-white/88 p-2 transition hover:border-amber-300/50 hover:bg-white card-lift">
                 <div className="aspect-[2/3] overflow-hidden rounded-xl border border-slate-200/70 bg-gradient-to-br from-slate-100 to-zinc-100">
-                  {item.imageUrl ? <img src={item.imageUrl} alt={`${item.playerName} card`} className="h-full w-full object-contain transition group-hover:scale-105" /> : <div className="flex h-full items-center justify-center text-xs uppercase tracking-[0.2em] text-zinc-500">Placeholder</div>}
+                  {item.imageUrl ? <img
+                    src={thumbUrl(item.imageUrl, 150)}
+                    alt={`${item.playerName} card`}
+                    loading="lazy"
+                    decoding="async"
+                    width={150}
+                    height={210}
+                    className="h-full w-full object-contain transition group-hover:scale-105" /> : <div className="flex h-full items-center justify-center text-xs uppercase tracking-[0.2em] text-zinc-500">Placeholder</div>}
                 </div>
                 <p className="mt-2 text-xs font-semibold text-zinc-900 truncate">{item.playerName}</p>
                 <div className="mt-0.5 flex items-center justify-between text-[11px] text-zinc-600">
