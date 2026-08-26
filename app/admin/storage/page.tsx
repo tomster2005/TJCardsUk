@@ -7,6 +7,7 @@ type LocationRow = { location: string; totalCards: number; totalStock: number };
 type SuffixGroup = { suffix: string; setName: string; rows: LocationRow[]; totalStock: number };
 type UnlocatedCard = { id: string; player?: string; title?: string; card_number?: string; set_name?: string; stock?: number; image_url?: string };
 type BagCard = { copy_id: string; card_id: string; owner: string | null; title: string; card_number: string; set_name: string; image_url: string | null; parallel: string | null; };
+type MoveState = { copy_id: string; newLocation: string };
 
 function parseSuffix(location: string): string {
   const m = location.match(/^\d+([A-Z]+)$/i);
@@ -23,6 +24,27 @@ export default function StoragePage() {
   const [selectedBag, setSelectedBag] = useState<string | null>(null);
   const [bagCards, setBagCards] = useState<BagCard[]>([]);
   const [bagLoading, setBagLoading] = useState(false);
+  const [moves, setMoves] = useState<MoveState[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [sealedBags, setSealedBags] = useState<Set<string>>(new Set());
+
+  async function fetchSealed() {
+    const supabase = getBrowserSupabase();
+    if (!supabase) return;
+    const { data } = await supabase.from("full_bags").select("location");
+    setSealedBags(new Set((data ?? []).map((r: any) => r.location)));
+  }
+
+  async function toggleSeal(location: string, currentlySealed: boolean) {
+    const supabase = getBrowserSupabase();
+    if (!supabase) return;
+    if (currentlySealed) {
+      await supabase.from("full_bags").delete().eq("location", location);
+    } else {
+      await supabase.from("full_bags").insert({ location });
+    }
+    fetchSealed().catch(() => {});
+  }
 
   async function fetchStorage() {
     const supabase = getBrowserSupabase();
@@ -107,7 +129,22 @@ export default function StoragePage() {
       image_url: r.cards?.image_url || null,
       parallel: r.cards?.parallel || null,
     })));
+    setMoves([]);
     setBagLoading(false);
+  }
+
+  async function saveMoves() {
+    const supabase = getBrowserSupabase();
+    if (!supabase || moves.length === 0) return;
+    setSaving(true);
+    for (const m of moves) {
+      if (!m.newLocation.trim()) continue;
+      await supabase.from("card_copies").update({ storage_location: m.newLocation.trim().toUpperCase() }).eq("id", m.copy_id);
+    }
+    setSaving(false);
+    setMoves([]);
+    if (selectedBag) fetchBagCards(selectedBag).catch(() => {});
+    fetchStorage().catch(() => {});
   }
 
   async function fetchUnlocatedCards() {
@@ -126,6 +163,7 @@ export default function StoragePage() {
 
   useEffect(() => {
     fetchStorage().catch(() => {});
+    fetchSealed().catch(() => {});
     const supabase = getBrowserSupabase();
     if (!supabase) return;
     const channel = supabase
@@ -234,14 +272,23 @@ export default function StoragePage() {
                     <th className="pb-3 pr-6">Location</th>
                     <th className="pb-3 pr-6">Card Types</th>
                     <th className="pb-3">Total Stock</th>
+                    <th className="pb-3 pl-4"></th>
                   </tr>
                 </thead>
                 <tbody>
                   {group.rows.map((row) => (
-                    <tr key={row.location} className="border-b border-slate-100 hover:bg-slate-50/50 cursor-pointer" onClick={() => fetchBagCards(row.location).catch(() => {})}>
-                      <td className="py-3 pr-6"><span className="rounded-full bg-amber-100 px-3 py-1 text-sm font-bold text-amber-800 hover:bg-amber-200 transition">{row.location}</span></td>
+                    <tr key={row.location} className={`border-b border-slate-100 cursor-pointer ${sealedBags.has(row.location) ? "bg-slate-50/80" : "hover:bg-slate-50/50"}`} onClick={() => fetchBagCards(row.location).catch(() => {})}>
+                      <td className="py-3 pr-6 flex items-center gap-2">
+                        <span className={`rounded-full px-3 py-1 text-sm font-bold transition ${sealedBags.has(row.location) ? "bg-slate-200 text-slate-500" : "bg-amber-100 text-amber-800 hover:bg-amber-200"}`}>{row.location}</span>
+                        {sealedBags.has(row.location) && <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Full</span>}
+                      </td>
                       <td className="py-3 pr-6 text-zinc-600">{row.totalCards}</td>
                       <td className="py-3"><span className="text-lg font-bold text-zinc-900">{row.totalStock}</span><span className="ml-1.5 text-xs text-zinc-400">cards</span></td>
+                      <td className="py-3 pl-4" onClick={e => { e.stopPropagation(); toggleSeal(row.location, sealedBags.has(row.location)).catch(() => {}); }}>
+                        <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold cursor-pointer transition ${sealedBags.has(row.location) ? "bg-teal-100 text-teal-700 hover:bg-teal-200" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>
+                          {sealedBags.has(row.location) ? "Unmark" : "Mark full"}
+                        </span>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -260,7 +307,14 @@ export default function StoragePage() {
                 <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-400">Bag contents</p>
                 <h2 className="text-xl font-black text-zinc-900">{selectedBag}</h2>
               </div>
-              <button onClick={() => setSelectedBag(null)} className="rounded-full border border-slate-200 px-3 py-1.5 text-xs text-zinc-500 hover:text-zinc-900">Close ✕</button>
+              <div className="flex items-center gap-2">
+                {moves.length > 0 && (
+                  <button onClick={saveMoves} disabled={saving} className="rounded-full bg-teal-600 px-4 py-1.5 text-xs font-bold text-white hover:bg-teal-700 disabled:opacity-50">
+                    {saving ? "Saving..." : `Save ${moves.length} move${moves.length > 1 ? "s" : ""}`}
+                  </button>
+                )}
+                <button onClick={() => setSelectedBag(null)} className="rounded-full border border-slate-200 px-3 py-1.5 text-xs text-zinc-500 hover:text-zinc-900">Close ✕</button>
+              </div>
             </div>
             {bagLoading ? (
               <div className="flex items-center justify-center py-20"><div className="h-8 w-8 animate-spin rounded-full border-2 border-amber-200 border-t-amber-500" /></div>
@@ -279,6 +333,18 @@ export default function StoragePage() {
                       <p className="text-xs text-zinc-500">#{c.card_number} · {c.set_name}</p>
                     </div>
                     {c.owner && <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-zinc-500">{c.owner}</span>}
+                    <input
+                      value={moves.find(m => m.copy_id === c.copy_id)?.newLocation ?? ""}
+                      onChange={e => {
+                        const val = e.target.value.toUpperCase();
+                        setMoves(prev => {
+                          const without = prev.filter(m => m.copy_id !== c.copy_id);
+                          return val ? [...without, { copy_id: c.copy_id, newLocation: val }] : without;
+                        });
+                      }}
+                      placeholder="Move to..."
+                      className="w-24 shrink-0 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-mono text-zinc-700 outline-none focus:border-teal-400"
+                    />
                   </div>
                 ))}
               </div>

@@ -74,7 +74,6 @@ function rowToCard(d: RpcRow): CatalogueCard & {
     category: d.category ?? "",
     variantParallels: d.parallel_names ?? [],
     parallelRowMap: new Map(),
-    slug: "",
     setSlug,
     cardSlug,
     _raw: d,

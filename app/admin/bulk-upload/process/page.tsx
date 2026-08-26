@@ -61,18 +61,18 @@ function nextBagInSet(current: string): string {
 function loadProgress(): { batch: string | null; index: number; binderId: string | null; owner: string | null; category: string | null } {
   if (typeof window === "undefined") return { batch: null, index: 0, binderId: null, owner: null, category: null };
   try {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return JSON.parse(raw);
   } catch {}
   return { batch: null, index: 0, binderId: null, owner: null, category: null };
 }
 
 function saveProgress(batch: string | null, index: number, binderId: string | null, owner: string | null, category: string | null) {
-  try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ batch, index, binderId, owner, category })); } catch {}
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ batch, index, binderId, owner, category })); } catch {}
 }
 
 function clearProgress() {
-  try { sessionStorage.removeItem(STORAGE_KEY); sessionStorage.removeItem(FIELDS_KEY); } catch {}
+  try { localStorage.removeItem(STORAGE_KEY); localStorage.removeItem(FIELDS_KEY); } catch {}
 }
 
 type FieldState = { title: string; cardNumber: string; setName: string; price: string; stock: string; status: string; team: string; brand: string; season: string; parallel: string; printRun: string; locked: Record<string, boolean> };
@@ -80,14 +80,14 @@ type FieldState = { title: string; cardNumber: string; setName: string; price: s
 function loadFields(): FieldState | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = sessionStorage.getItem(FIELDS_KEY);
+    const raw = localStorage.getItem(FIELDS_KEY);
     if (raw) return JSON.parse(raw);
   } catch {}
   return null;
 }
 
 function saveFields(fields: FieldState) {
-  try { sessionStorage.setItem(FIELDS_KEY, JSON.stringify(fields)); } catch {}
+  try { localStorage.setItem(FIELDS_KEY, JSON.stringify(fields)); } catch {}
 }
 
 // Simple fuzzy match: Levenshtein distance
@@ -328,9 +328,12 @@ export default function ProcessBatchPage() {
             if (data.length < 1000) break;
             from += 1000;
           }
+          const { data: sealedData } = await supabase.from("full_bags").select("location");
+          const sealed = new Set((sealedData ?? []).map((r: any) => r.location));
           const bagMap: Record<string, number> = {};
           for (const row of allData) {
             const loc = row.storage_location as string;
+            if (sealed.has(loc)) continue;
             if (!row.sold) bagMap[loc] = (bagMap[loc] ?? 0) + 1;
             else if (!(loc in bagMap)) bagMap[loc] = 0;
           }
@@ -372,7 +375,7 @@ export default function ProcessBatchPage() {
         from += 1000;
       }
 
-      if (!data || data.length === 0) {
+      if (allData.length === 0) {
         // No existing bags for this suffix — start fresh at 1
         const firstBag = `1${currentSuffix}`;
         setCurrentBag(firstBag);
@@ -382,13 +385,16 @@ export default function ProcessBatchPage() {
         return;
       }
 
-      // Group unsold counts per bag
-      const bagMap: Record<string, number> = {};
-      for (const row of allData) {
-        const loc = row.storage_location as string;
-        if (!row.sold) bagMap[loc] = (bagMap[loc] ?? 0) + 1;
-        else if (!(loc in bagMap)) bagMap[loc] = 0;
-      }
+      // Group unsold counts per bag, excluding sealed bags
+          const { data: sealedData } = await supabase.from("full_bags").select("location");
+          const sealed = new Set((sealedData ?? []).map((r: any) => r.location));
+          const bagMap: Record<string, number> = {};
+          for (const row of allData) {
+            const loc = row.storage_location as string;
+            if (sealed.has(loc)) continue;
+            if (!row.sold) bagMap[loc] = (bagMap[loc] ?? 0) + 1;
+            else if (!(loc in bagMap)) bagMap[loc] = 0;
+          }
 
       // Sort bags by number ascending (backfill: lowest first)
       const sorted = Object.entries(bagMap).sort((a, b) => {
@@ -435,18 +441,92 @@ export default function ProcessBatchPage() {
       const binder = binderSets.find(b => b.id === selectedBinder);
       if (binder) {
         setSetName(binder.title);
-        // Auto-detect bag suffix from existing cards in this set
+        // Auto-detect bag suffix and best bag for this set
+        setBagStatusLoading(true);
         const { data: copies } = await supabase
+          .from("card_copies")
+          .select("storage_location")
+          .eq("sold", false)
+          .not("storage_location", "is", null)
+          .limit(1000);
+
+        // Find suffix used by this set
+        const { data: setCopies } = await supabase
+          .from("card_copies")
+          .select("storage_location, cards(set_name)")
+          .not("storage_location", "is", null)
+          .limit(1);
+        // Use a direct join query to find suffix for this set
+        const { data: locRows } = await supabase
+          .from("card_copies")
+          .select("storage_location")
+          .eq("sold", false)
+          .not("storage_location", "is", null)
+          .filter("cards.set_name", "eq", binder.title)
+          .limit(1);
+
+        // Better: query via cards join
+        const { data: joinRows } = await supabase
           .from("card_copies")
           .select("storage_location, cards!inner(set_name)")
           .eq("cards.set_name", binder.title)
           .not("storage_location", "is", null)
+          .eq("sold", false)
+          .order("created_at", { ascending: false })
           .limit(1);
-        const loc = copies?.[0]?.storage_location as string | undefined;
-        if (loc) {
-          const parsed = parseBag(loc);
-          if (parsed) setCurrentSuffix(parsed.suffix);
+
+        const detectedLoc = joinRows?.[0]?.storage_location as string | undefined;
+        const detectedSuffix = detectedLoc ? parseBag(detectedLoc)?.suffix : null;
+        const suffix = detectedSuffix ?? currentSuffix;
+
+        if (detectedSuffix && detectedSuffix !== currentSuffix) {
+          setCurrentSuffix(detectedSuffix);
         }
+
+        // Now find best bag for this suffix
+        let allData: any[] = [];
+        let from = 0;
+        while (true) {
+          const { data, error } = await supabase
+            .from("card_copies")
+            .select("storage_location, sold")
+            .like("storage_location", `%${suffix}`)
+            .range(from, from + 999);
+          if (error || !data || data.length === 0) break;
+          allData = allData.concat(data);
+          if (data.length < 1000) break;
+          from += 1000;
+        }
+
+        if (allData.length === 0) {
+          const firstBag = `1${suffix}`;
+          setCurrentBag(firstBag);
+          setBagCount(0);
+          setBagStatus(`No existing bags — starting ${firstBag}`);
+        } else {
+          const bagMap: Record<string, number> = {};
+          for (const row of allData) {
+            const loc = row.storage_location as string;
+            if (!row.sold) bagMap[loc] = (bagMap[loc] ?? 0) + 1;
+            else if (!(loc in bagMap)) bagMap[loc] = 0;
+          }
+          const sorted = Object.entries(bagMap).sort((a, b) => (parseBag(a[0])?.num ?? 0) - (parseBag(b[0])?.num ?? 0));
+          // Use highest-numbered bag with space (most recent first)
+          const withSpace = sorted.filter(([, cnt]) => cnt < BAG_CAPACITY);
+          const best = withSpace[withSpace.length - 1]; // highest bag with space
+          if (best) {
+            setCurrentBag(best[0]);
+            setBagCount(best[1]);
+            setBagStatus(`Resuming ${best[0]} (${best[1]}/${BAG_CAPACITY} used)`);
+          } else {
+            const maxNum = Math.max(...sorted.map(([bag]) => parseBag(bag)?.num ?? 0));
+            const newBag = `${maxNum + 1}${suffix}`;
+            setCurrentBag(newBag);
+            setBagCount(0);
+            setBagStatus(`All bags full — starting ${newBag}`);
+          }
+        }
+        setBagStatusLoading(false);
       }
     })();
   }, [supabase, selectedBinder, binderSets]);
@@ -849,10 +929,11 @@ export default function ProcessBatchPage() {
         if (!row.sold) bagMap[loc] = (bagMap[loc] ?? 0) + 1;
         else if (!(loc in bagMap)) bagMap[loc] = 0;
       }
-      const sorted = Object.entries(bagMap).sort((a, b) => {
-        const pa = parseBag(a[0]), pb = parseBag(b[0]);
-        return (pa?.num ?? 0) - (pb?.num ?? 0);
-      });
+      const { data: sealedData } = await supabase.from("full_bags").select("location");
+      const sealed = new Set((sealedData ?? []).map((r: any) => r.location));
+      const sorted = Object.entries(bagMap)
+        .filter(([bag]) => !sealed.has(bag))
+        .sort((a, b) => { const pa = parseBag(a[0]), pb = parseBag(b[0]); return (pa?.num ?? 0) - (pb?.num ?? 0); });
       const available = sorted.find(([bag, count]) => bag !== currentBag && count < BAG_CAPACITY);
       if (available) {
         // Backfill bag available — show modal, do NOT advance silently
@@ -891,6 +972,15 @@ export default function ProcessBatchPage() {
         <div className="rounded-3xl border border-slate-300/60 bg-white/92 p-8 shadow-sm">
           <h1 className="text-3xl font-bold text-zinc-900">Process Uploaded Cards</h1>
           <p className="mt-2 text-zinc-600">Select a batch and binder set to start.</p>
+          {(() => { const s = loadProgress(); return s.batch ? (
+            <div className="mt-4 flex items-center justify-between rounded-2xl border border-teal-200 bg-teal-50 px-4 py-3">
+              <p className="text-sm font-medium text-teal-800">▶ Saved session: Batch {s.batch}, card {s.index + 1}</p>
+              <div className="flex gap-2">
+                <button onClick={() => { setSelectedBatch(s.batch!); setCurrentIndex(s.index); }} className="rounded-full bg-teal-600 px-4 py-1.5 text-xs font-bold text-white hover:bg-teal-700">Resume</button>
+                <button onClick={() => { clearProgress(); window.location.reload(); }} className="rounded-full border border-teal-300 px-4 py-1.5 text-xs font-semibold text-teal-700 hover:bg-teal-100">Clear</button>
+              </div>
+            </div>
+          ) : null; })()}
         </div>
 
         {/* Binder selection */}
@@ -1102,6 +1192,13 @@ export default function ProcessBatchPage() {
             {bagCount >= BAG_CAPACITY - 3 && (
               <p className="text-xs font-bold text-white mt-1">⚠ Almost full!</p>
             )}
+            <button
+              type="button"
+              onClick={() => setShowBagPrompt(true)}
+              className="mt-1 rounded-full border border-white/30 bg-white/10 px-3 py-1 text-[11px] font-bold text-white hover:bg-white/20"
+            >
+              Seal bag early
+            </button>
           </div>
         </div>
       )}

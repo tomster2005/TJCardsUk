@@ -4,6 +4,8 @@ import { createServiceSupabase, getUserIdFromRequest } from "@/lib/supabase/serv
 import { rejectForbiddenOrigin } from "@/lib/api/origin";
 import { limiters, getIp, checkLimit } from "@/lib/api/ratelimit";;
 
+const GENERIC_ERROR = "Invalid username or password.";
+
 export async function POST(request: NextRequest) {
   const ip = getIp(request);
   const limited = await checkLimit(limiters.auth, ip);

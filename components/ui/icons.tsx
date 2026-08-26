@@ -1,7 +1,8 @@
-import type { ReactNode } from "react";
+import React, { type ReactNode } from "react";
 
 type IconProps = {
   className?: string;
+  style?: React.CSSProperties;
 };
 
 function BaseIcon({ className, children }: { className?: string; children: ReactNode }) {
