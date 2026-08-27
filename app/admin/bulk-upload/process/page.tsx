@@ -242,13 +242,9 @@ export default function ProcessBatchPage() {
     try { localStorage.setItem(BAG_SUFFIX_KEY, currentSuffix); } catch {}
   }, [currentSuffix]);
 
-  // Restore fields from sessionStorage on mount
+  // Restore state on mount — batch/index only restored on Resume click, not automatically
   useEffect(() => {
     const saved = loadProgress();
-    if (saved.batch) {
-      setSelectedBatch(saved.batch);
-      setCurrentIndex(saved.index);
-    }
     if (saved.binderId) setSelectedBinder(saved.binderId);
     if (saved.owner) setOwner(saved.owner);
     if (saved.category) setCategory(saved.category);
@@ -976,7 +972,7 @@ export default function ProcessBatchPage() {
             <div className="mt-4 flex items-center justify-between rounded-2xl border border-teal-200 bg-teal-50 px-4 py-3">
               <p className="text-sm font-medium text-teal-800">▶ Saved session: Batch {s.batch}, card {s.index + 1}</p>
               <div className="flex gap-2">
-                <button onClick={() => { setSelectedBatch(s.batch!); setCurrentIndex(s.index); }} className="rounded-full bg-teal-600 px-4 py-1.5 text-xs font-bold text-white hover:bg-teal-700">Resume</button>
+                <button onClick={() => { const s = loadProgress(); setSelectedBatch(s.batch!); setCurrentIndex(s.index); }} className="rounded-full bg-teal-600 px-4 py-1.5 text-xs font-bold text-white hover:bg-teal-700">Resume</button>
                 <button onClick={() => { clearProgress(); window.location.reload(); }} className="rounded-full border border-teal-300 px-4 py-1.5 text-xs font-semibold text-teal-700 hover:bg-teal-100">Clear</button>
               </div>
             </div>
@@ -1112,7 +1108,7 @@ export default function ProcessBatchPage() {
             </div>
             <p className="text-center text-sm text-zinc-600">Do not press confirm until the new bag is in your hand and labelled.</p>
             <button
-              onClick={() => { setCurrentBag(nextBagInSet(currentBag)); setBagCount(0); setShowBagPrompt(false); advanceCard(); }}
+              onClick={() => { setCurrentBag(nextBagInSet(currentBag)); setBagCount(0); setShowBagPrompt(false); }}
               className="w-full rounded-full bg-amber-500 px-5 py-4 text-base font-black text-white hover:bg-amber-600 shadow-lg"
             >
               ✓ Bag {nextBagInSet(currentBag)} is labelled — continue
