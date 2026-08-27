@@ -5,14 +5,14 @@ import { NextRequest, NextResponse } from "next/server";
 const PROD_ORIGIN = (process.env.NEXT_PUBLIC_APP_URL ?? "https://collectrauk.co.uk")
   .replace(/\/$/, "");
 
-// Exact allowlist of permitted origins.
-// Dev origins are only included outside production.
 function allowedOrigins(): string[] {
-  const origins = [PROD_ORIGIN];
-  if (process.env.NODE_ENV !== "production") {
-    origins.push("http://localhost:3000");
-  }
-  return origins;
+  return [
+    "https://collectrauk.co.uk",
+    "https://www.collectrauk.co.uk",
+    "https://collectrauk.com",
+    "https://www.collectrauk.com",
+    ...(process.env.NODE_ENV !== "production" ? ["http://localhost:3000"] : []),
+  ];
 }
 
 /**
