@@ -51,7 +51,7 @@ export default function DashboardPage() {
   const [cardOffset, setCardOffset] = useState(0);
   const [setSlide, setSetSlide] = useState(0);
   const [slideDir, setSlideDir] = useState<"left" | "right">("right");
-  const [sliding, setSliding] = useState(false);
+  const [sliding, setSliding] = useState(false); // visual only
   const slideTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -102,28 +102,36 @@ export default function DashboardPage() {
     load();
   }, [user]);
 
-  useEffect(() => {
-    if (!stats?.allSets.length) return;
-    slideTimer.current = setInterval(() => goSlide("right"), 4000);
-    return () => { if (slideTimer.current) clearInterval(slideTimer.current); };
-  }, [stats?.allSets.length, setSlide]);
+  const slidingRef = useRef(false);
+  const statsRef = useRef(stats);
+  useEffect(() => { statsRef.current = stats; }, [stats]);
 
   function goSlide(dir: "left" | "right") {
-    if (!stats?.allSets.length || sliding) return;
+    const s = statsRef.current;
+    if (!s?.allSets.length || slidingRef.current) return;
+    slidingRef.current = true;
     setSlideDir(dir);
     setSliding(true);
     setTimeout(() => {
       setSetSlide(i => {
-        const len = stats.allSets.length;
+        const len = s.allSets.length;
         return dir === "right" ? (i + 1) % len : (i - 1 + len) % len;
       });
       setSliding(false);
+      slidingRef.current = false;
     }, 300);
   }
+
+  useEffect(() => {
+    if (!stats?.allSets.length) return;
+    slideTimer.current = setInterval(() => goSlide("right"), 4000);
+    return () => { if (slideTimer.current) clearInterval(slideTimer.current); };
+  }, [stats?.allSets.length]);
 
   function manualSlide(dir: "left" | "right") {
     if (slideTimer.current) clearInterval(slideTimer.current);
     goSlide(dir);
+    slideTimer.current = setInterval(() => goSlide("right"), 4000);
   }
 
   const circumference = 2 * Math.PI * 44;
@@ -139,15 +147,13 @@ export default function DashboardPage() {
         <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
 
           {/* Hero — cream panel */}
-          <section className="relative overflow-hidden rounded-3xl animate-fade-up" style={{ background: "#D6D0C4", height: 420 }}>
-            {/* Decorative blobs */}
+          <section className="relative overflow-hidden rounded-3xl animate-fade-up" style={{ background: "#D6D0C4" }}>
             <div className="pointer-events-none absolute -bottom-16 right-1/4 h-56 w-56 rounded-full" style={{ background: "radial-gradient(circle, rgba(242,106,33,0.35), transparent 70%)", filter: "blur(40px)" }} />
             <div className="pointer-events-none absolute -bottom-8 right-8 h-40 w-40 rounded-full" style={{ background: "radial-gradient(circle, rgba(8,123,117,0.4), transparent 70%)", filter: "blur(32px)" }} />
 
-            <div className="relative flex flex-col lg:flex-row gap-6 p-7 sm:p-8">
-              {/* Left */}
+            <div className="relative flex flex-col gap-6 p-6 sm:p-8">
               <div className="flex-1">
-                <div className="flex items-center gap-2 mb-5">
+                <div className="flex items-center gap-2 mb-4">
                   <span className="relative flex h-1.5 w-1.5">
                     <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-50" />
                     <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
@@ -155,60 +161,59 @@ export default function DashboardPage() {
                   <span className="text-[10px] font-semibold uppercase tracking-[0.3em]" style={{ color: "rgba(0,0,0,0.35)" }}>Store active</span>
                 </div>
 
-                <h1 className="text-4xl font-black tracking-tight text-zinc-900 sm:text-5xl" style={{ lineHeight: 1.05 }}>
+                <h1 className="text-3xl font-black tracking-tight text-zinc-900 sm:text-5xl" style={{ lineHeight: 1.05 }}>
                   Every card.<br />
                   <span style={{ color: "#F26A21" }}>Every moment.</span><br />
                   <span style={{ color: "#087B75" }}>Preserved.</span>
                 </h1>
 
-                <p className="mt-4 max-w-xs text-[14px] leading-relaxed" style={{ color: "rgba(0,0,0,0.45)" }}>
+                <p className="mt-3 max-w-xs text-[13px] leading-relaxed" style={{ color: "rgba(0,0,0,0.45)" }}>
                   Browse, collect and track your favourite trading cards — all in one place.
                 </p>
 
-                <div className="mt-6 flex flex-wrap items-center gap-3">
-                  <Link href="/catalogue" className="btn-gold inline-flex items-center gap-2 rounded-full px-6 py-2.5 text-[13px] font-bold">
+                <div className="mt-5 flex flex-wrap items-center gap-3">
+                  <Link href="/catalogue" className="btn-gold inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-[13px] font-bold">
                     Browse Cards →
                   </Link>
                   <Link href="/binder"
-                    className="inline-flex items-center gap-2 rounded-full px-6 py-2.5 text-[13px] font-semibold transition hover:-translate-y-0.5"
+                    className="inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-[13px] font-semibold transition"
                     style={{ border: "1px solid rgba(8,123,117,0.3)", background: "rgba(8,123,117,0.06)", color: "#087B75" }}>
                     Open Binder
                   </Link>
                 </div>
               </div>
 
-              {/* Right — stats card */}
+              {/* Stats card — full width on mobile */}
               {!loading && stats && (
-                <div className="lg:w-64 rounded-2xl p-5 shrink-0" style={{ background: "rgba(255,255,255,0.7)", border: "1px solid rgba(0,0,0,0.06)", backdropFilter: "blur(12px)" }}>
-                  <p className="text-[10px] font-bold uppercase tracking-[0.25em] mb-4" style={{ color: "rgba(0,0,0,0.35)" }}>Your Collection</p>
-                  <div className="space-y-3">
+                <div className="rounded-2xl p-4 sm:p-5" style={{ background: "rgba(255,255,255,0.7)", border: "1px solid rgba(0,0,0,0.06)", backdropFilter: "blur(12px)" }}>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.25em] mb-3" style={{ color: "rgba(0,0,0,0.35)" }}>Your Collection</p>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4 lg:grid-cols-2">
                     {[
                       { label: "Total Cards", value: stats.totalCards },
                       { label: "Total Stock", value: stats.totalStock },
                       { label: "Sets", value: stats.sets },
                       { label: "Binder Sets", value: stats.binderSets },
                     ].map(s => (
-                      <div key={s.label} className="flex items-center justify-between">
-                        <span className="text-[11px] uppercase tracking-wider" style={{ color: "rgba(0,0,0,0.4)" }}>{s.label}</span>
+                      <div key={s.label} className="flex flex-col">
+                        <span className="text-[10px] uppercase tracking-wider" style={{ color: "rgba(0,0,0,0.4)" }}>{s.label}</span>
                         <span className="text-xl font-black text-zinc-900"><AnimatedCounter value={s.value} /></span>
                       </div>
                     ))}
-                    {/* Ring */}
-                    <div className="flex items-center gap-3 pt-2" style={{ borderTop: "1px solid rgba(0,0,0,0.06)" }}>
-                      <svg width="52" height="52" viewBox="0 0 100 100" className="shrink-0">
-                        <circle cx="50" cy="50" r="44" fill="none" stroke="rgba(0,0,0,0.08)" strokeWidth="8" />
-                        <circle cx="50" cy="50" r="44" fill="none" stroke="#087B75" strokeWidth="8" strokeLinecap="round"
-                          strokeDasharray={circumference} strokeDashoffset={dashOffset} transform="rotate(-90 50 50)"
-                          style={{ transition: "stroke-dashoffset 1.4s cubic-bezier(0.22,1,0.36,1)", filter: "drop-shadow(0 0 4px rgba(8,123,117,0.5))" }} />
-                        <text x="50" y="55" textAnchor="middle" style={{ fontSize: 22, fontWeight: 900, fill: "#1c1917" }}>{completionPct}%</text>
-                      </svg>
-                      <div>
-                        <p className="text-[10px] uppercase tracking-wider" style={{ color: "rgba(0,0,0,0.4)" }}>Collected</p>
-                        <p className="text-lg font-black" style={{ color: "#087B75" }}>
-                          {collection?.collected ?? 0}
-                          <span className="text-[11px] font-medium" style={{ color: "rgba(0,0,0,0.3)" }}>/{collection?.total ?? 0}</span>
-                        </p>
-                      </div>
+                  </div>
+                  <div className="flex items-center gap-3 mt-3 pt-3" style={{ borderTop: "1px solid rgba(0,0,0,0.06)" }}>
+                    <svg width="48" height="48" viewBox="0 0 100 100" className="shrink-0">
+                      <circle cx="50" cy="50" r="44" fill="none" stroke="rgba(0,0,0,0.08)" strokeWidth="8" />
+                      <circle cx="50" cy="50" r="44" fill="none" stroke="#087B75" strokeWidth="8" strokeLinecap="round"
+                        strokeDasharray={circumference} strokeDashoffset={dashOffset} transform="rotate(-90 50 50)"
+                        style={{ transition: "stroke-dashoffset 1.4s cubic-bezier(0.22,1,0.36,1)", filter: "drop-shadow(0 0 4px rgba(8,123,117,0.5))" }} />
+                      <text x="50" y="55" textAnchor="middle" style={{ fontSize: 22, fontWeight: 900, fill: "#1c1917" }}>{completionPct}%</text>
+                    </svg>
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider" style={{ color: "rgba(0,0,0,0.4)" }}>Collected</p>
+                      <p className="text-lg font-black" style={{ color: "#087B75" }}>
+                        {collection?.collected ?? 0}
+                        <span className="text-[11px] font-medium" style={{ color: "rgba(0,0,0,0.3)" }}>/{collection?.total ?? 0}</span>
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -220,10 +225,10 @@ export default function DashboardPage() {
           {stats?.allSets.length ? (() => {
             const slide = stats.allSets[setSlide];
             return (
-              <section className="relative rounded-3xl animate-fade-up" style={{ background: "linear-gradient(145deg, #0a1a1a, #0d2020)", border: "1px solid rgba(8,123,117,0.2)", height: 420 }}>
+              <section className="relative overflow-hidden rounded-3xl animate-fade-up" style={{ background: "linear-gradient(145deg, #0a1a1a, #0d2020)", border: "1px solid rgba(8,123,117,0.2)" }}>
                 <div className="pointer-events-none absolute -bottom-12 -right-12 h-48 w-48 rounded-full" style={{ background: "radial-gradient(circle, rgba(242,106,33,0.4), transparent 70%)", filter: "blur(32px)" }} />
                 <div className="pointer-events-none absolute top-0 left-0 h-32 w-32 rounded-full" style={{ background: "radial-gradient(circle, rgba(8,123,117,0.3), transparent 70%)", filter: "blur(24px)" }} />
-                <div className="absolute inset-0 p-7 pb-4 flex flex-col">
+                <div className="relative p-7 pb-4 flex flex-col">
                   <div className="flex items-center justify-between mb-3">
                     <p className="text-[10px] font-bold uppercase tracking-[0.3em]" style={{ color: "rgba(8,163,155,0.7)" }}>Sets Available</p>
                     <div className="flex items-center gap-2">
@@ -244,7 +249,7 @@ export default function DashboardPage() {
                         style={{ border: "1px solid rgba(255,255,255,0.15)" }}>→</button>
                     </div>
                   </div>
-                  <div className="flex-1 flex flex-col min-h-0" style={{
+                  <div className="flex flex-col pb-4" style={{
                     opacity: sliding ? 0 : 1,
                     transform: sliding ? `translateX(${slideDir === "right" ? "20px" : "-20px"})` : "translateX(0)",
                     transition: "opacity 0.3s ease, transform 0.3s ease",
@@ -256,10 +261,10 @@ export default function DashboardPage() {
                       style={{ background: "#087B75", boxShadow: "0 4px 16px rgba(8,123,117,0.4)" }}>
                       Explore Series →
                     </Link>
-                    <div className="mt-auto pt-4 flex items-end justify-end gap-2 overflow-visible pb-6">
+                    <div className="mt-4 pt-4 flex items-end justify-end gap-2 overflow-hidden pb-2">
                       {slide.cards.slice(0, 3).map((card, i) => (
                         <div key={i} className="overflow-hidden rounded-xl shrink-0" style={{
-                          width: i === 1 ? 100 : 80, height: i === 1 ? 140 : 112,
+                          width: i === 1 ? 80 : 64, height: i === 1 ? 112 : 90,
                           transform: i === 0 ? "rotate(-6deg) translateY(8px)" : i === 2 ? "rotate(6deg) translateY(8px)" : "none",
                           boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
                           border: "1px solid rgba(255,255,255,0.1)",
@@ -312,7 +317,7 @@ export default function DashboardPage() {
                 </Link>
               </div>
             </div>
-            <div className="grid grid-cols-4 gap-3 sm:grid-cols-6 lg:grid-cols-8">
+            <div className="grid grid-cols-3 gap-3 sm:grid-cols-6 lg:grid-cols-8">
               {visibleCards.map((card) => (
                 <Link key={card.id} href="/catalogue"
                   className="group relative overflow-hidden rounded-2xl transition-all duration-250 hover:-translate-y-1.5"

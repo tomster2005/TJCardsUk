@@ -38,6 +38,8 @@ const cspDirectives: Record<string, string[]> = {
     "blob:",
     // Supabase Storage — card images, avatars, personal card photos.
     "https://pnouhcbgsyucsofunjor.supabase.co",
+    // Cloudflare R2 — card images (replacing Supabase Storage).
+    "https://pub-938bfbdd04af44fab33822083b71fb2a.r2.dev",
     // Open Graph / social preview images may be fetched by crawlers via
     // the metadataBase URL; allow the production origin explicitly.
     PROD_ORIGIN,

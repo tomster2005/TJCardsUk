@@ -73,7 +73,9 @@ export default function OrdersPage() {
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
-  const [tab, setTab] = useState<"orders" | "sales">("orders");
+  const [tab, setTab] = useState<"orders" | "sales" | "pending">("orders");
+  const [pendingOrders, setPendingOrders] = useState<any[]>([]);
+  const [finalizing, setFinalizing] = useState<string | null>(null);
 
   useEffect(() => {
     const supabase = getBrowserSupabase();
@@ -84,10 +86,34 @@ export default function OrdersPage() {
         .select("*")
         .order("created_at", { ascending: false });
       setOrders((data ?? []) as Order[]);
+      const { data: pending } = await supabase
+        .from("pending_orders")
+        .select("*")
+        .order("created_at", { ascending: false });
+      setPendingOrders(pending ?? []);
       setLoading(false);
     })();
   }, []);
 
+  async function finalizePending(checkoutId: string) {
+    setFinalizing(checkoutId);
+    const res = await fetch("/api/sumup/finalize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ checkoutId, shippingDetails: null }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setFinalizing(null);
+    if (data.paid) {
+      setPendingOrders(prev => prev.filter(p => p.sumup_checkout_id !== checkoutId));
+      const supabase = getBrowserSupabase();
+      if (!supabase) return;
+      const { data: orders } = await supabase.from("orders").select("*").order("created_at", { ascending: false });
+      setOrders((orders ?? []) as Order[]);
+    } else {
+      alert(data.error || "Finalize failed — payment may not be confirmed yet.");
+    }
+  }
   async function deleteOrder(id: string) {
     if (!confirm("Permanently delete this order? This cannot be undone.")) return;
     const supabase = getBrowserSupabase();

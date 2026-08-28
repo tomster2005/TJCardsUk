@@ -2,7 +2,6 @@
 
 import { useState, useCallback, useRef } from "react";
 import Link from "next/link";
-import { getBrowserSupabase } from "@/lib/supabase/client";
 
 interface CardPair {
   id: number;
@@ -60,21 +59,24 @@ export default function BulkUploadPage() {
   }, [processFiles]);
 
   const handleUpload = async () => {
-    const supabase = getBrowserSupabase();
-    if (!supabase) { setError("Not connected to Supabase."); return; }
-
     setUploading(true);
     setError(null);
     setSuccess(null);
     setProgress({ done: 0, total: pairs.length });
 
-    // Find next batch number by listing existing folders
-    const { data: existingFiles } = await supabase.storage.from("card-images").list("", { limit: 1000 });
-    const existingNums = (existingFiles ?? [])
-      .map(f => parseInt(f.name, 10))
-      .filter(n => !isNaN(n));
-    const nextBatch = existingNums.length > 0 ? Math.max(...existingNums) + 1 : 1;
-    const batchId = String(nextBatch);
+    // Use timestamp as batch ID
+    const batchId = String(Date.now());
+
+    async function uploadToR2(file: File, key: string): Promise<void> {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("key", key);
+      const res = await fetch("/api/r2/upload", { method: "POST", body: fd });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error ?? "Upload failed");
+      }
+    }
 
     for (let i = 0; i < pairs.length; i++) {
       const pair = pairs[i];
@@ -83,14 +85,14 @@ export default function BulkUploadPage() {
       const frontExt = pair.front.name.split(".").pop();
       const backExt = pair.back.name.split(".").pop();
 
-      const frontPath = `${batchId}/${cardNum}_front.${frontExt}`;
-      const backPath = `${batchId}/${cardNum}_back.${backExt}`;
-
-      const { error: e1 } = await supabase.storage.from("card-images").upload(frontPath, pair.front);
-      if (e1) { setError(`Failed uploading front of card ${i + 1}: ${e1.message}`); setUploading(false); return; }
-
-      const { error: e2 } = await supabase.storage.from("card-images").upload(backPath, pair.back);
-      if (e2) { setError(`Failed uploading back of card ${i + 1}: ${e2.message}`); setUploading(false); return; }
+      try {
+        await uploadToR2(pair.front, `${batchId}/${cardNum}_front.${frontExt}`);
+        await uploadToR2(pair.back, `${batchId}/${cardNum}_back.${backExt}`);
+      } catch (e: any) {
+        setError(`Failed uploading card ${i + 1}: ${e.message}`);
+        setUploading(false);
+        return;
+      }
 
       setProgress({ done: i + 1, total: pairs.length });
     }

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useMemo, useState, useEffect, useRef, useCallback } from "react";
@@ -80,91 +80,6 @@ function rowToCard(d: RpcRow): CatalogueCard & {
   };
 }
 
-function SetsPicker({ sets, setCategoryMap, value, onChange }: {
-  sets: string[];
-  setCategoryMap: Record<string, string>;
-  value: string;
-  onChange: (v: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [expanded, setExpanded] = useState<string | null>(null);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, []);
-
-  const grouped: Record<string, string[]> = {};
-  for (const s of sets) {
-    const cat = setCategoryMap[s] || "Other";
-    if (!grouped[cat]) grouped[cat] = [];
-    grouped[cat].push(s);
-  }
-  const categories = Object.keys(grouped).sort();
-  const label = value === "all" ? "All Sets" : value;
-
-  return (
-    <div ref={ref} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen(v => !v)}
-        className="rounded-xl px-3 py-1.5 text-[13px] outline-none flex items-center gap-1.5"
-        style={{ background: "white", border: "1px solid rgba(0,0,0,0.1)", color: "#374151", minWidth: "120px" }}
-      >
-        <span className="truncate max-w-[140px]">{label}</span>
-        <span className="ml-auto text-[10px] opacity-50">{open ? "▲" : "▼"}</span>
-      </button>
-      {open && (
-        <div className="absolute right-0 top-full z-50 mt-1 w-56 rounded-xl border border-slate-200 bg-white shadow-xl overflow-hidden">
-          <button
-            type="button"
-            onClick={() => { onChange("all"); setOpen(false); }}
-            className={`w-full px-4 py-2.5 text-left text-[13px] hover:bg-amber-50 transition ${
-              value === "all" ? "font-bold text-amber-600" : "text-zinc-700"
-            }`}
-          >
-            All Sets
-          </button>
-          <div className="border-t border-slate-100" />
-          {categories.map(cat => (
-            <div key={cat}>
-              <button
-                type="button"
-                onClick={() => setExpanded(expanded === cat ? null : cat)}
-                className="w-full flex items-center justify-between px-4 py-2.5 text-[12px] font-bold uppercase tracking-wider text-zinc-400 hover:bg-slate-50 transition"
-              >
-                {cat}
-                <span>{expanded === cat ? "▲" : "▼"}</span>
-              </button>
-              {expanded === cat && (
-                <div className="bg-slate-50/60">
-                  {grouped[cat].map(s => (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => { onChange(s); setOpen(false); }}
-                      className={`w-full px-6 py-2 text-left text-[13px] hover:bg-amber-50 transition ${
-                        value === s ? "font-bold text-amber-600" : "text-zinc-700"
-                      }`}
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-
 function readFilters() {
   try { return JSON.parse(sessionStorage.getItem("catalogue_filters") ?? "{}"); } catch { return {}; }
 }
@@ -181,31 +96,22 @@ export function CatalogueGrid() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
-  // Filter / sort state — safe defaults on server, restored from sessionStorage after mount
-  const [query, setQuery] = useState<string>("");
-  const [setFilter, setSetFilter] = useState<string>("all");
-  const [teamFilter, setTeamFilter] = useState<string>("all");
-  const [parallelFilter, setParallelFilter] = useState<string>("all");
-  const [inStockOnly, setInStockOnly] = useState<boolean>(false);
-  const [categoryFilter, setCategoryFilter] = useState<string>("all");
-  const [sortBy, setSortBy] = useState<SortOption>("cardNumber");
-  const [showFilters, setShowFilters] = useState(false);
+  // Filter / sort state â€” restored from sessionStorage on mount
+  const f = readFilters();
+  const [query, setQuery] = useState<string>(f.query ?? "");
+  const [setFilter, setSetFilter] = useState<string>(f.setFilter ?? "all");
+  const [teamFilter, setTeamFilter] = useState<string>(f.teamFilter ?? "all");
+  const [parallelFilter, setParallelFilter] = useState<string>(f.parallelFilter ?? "all");
+  const [inStockOnly, setInStockOnly] = useState<boolean>(f.inStockOnly ?? false);
+  const [categoryFilter, setCategoryFilter] = useState<string>(f.categoryFilter ?? "all");
+  const [sortBy, setSortBy] = useState<SortOption>(f.sortBy ?? "cardNumber");
+  const [showFilters, setShowFilters] = useState(
+    f.setFilter !== "all" || f.teamFilter !== "all" || f.parallelFilter !== "all" || f.inStockOnly
+  );
 
-  useEffect(() => {
-    const f = readFilters();
-    if (f.query) setQuery(f.query);
-    if (f.setFilter && f.setFilter !== "all") setSetFilter(f.setFilter);
-    if (f.teamFilter && f.teamFilter !== "all") setTeamFilter(f.teamFilter);
-    if (f.parallelFilter && f.parallelFilter !== "all") setParallelFilter(f.parallelFilter);
-    if (f.inStockOnly) setInStockOnly(f.inStockOnly);
-    if (f.categoryFilter && f.categoryFilter !== "all") setCategoryFilter(f.categoryFilter);
-    if (f.sortBy) setSortBy(f.sortBy);
-    if (f.setFilter !== "all" || f.teamFilter !== "all" || f.parallelFilter !== "all" || f.inStockOnly) setShowFilters(true);
-  }, []);
-
-  // Filter dropdown options — fetched once, re-fetched when set/category changes
-  const [filterOptions, setFilterOptions] = useState<{ sets: string[]; teams: string[]; parallels: string[]; setCategoryMap: Record<string, string> }>({
-    sets: [], teams: [], parallels: [], setCategoryMap: {},
+  // Filter dropdown options â€” fetched once, re-fetched when set/category changes
+  const [filterOptions, setFilterOptions] = useState<{ sets: string[]; teams: string[]; parallels: string[] }>({
+    sets: [], teams: [], parallels: [],
   });
 
   // Persist filters to sessionStorage
@@ -219,27 +125,19 @@ export function CatalogueGrid() {
   useEffect(() => {
     const supabase = getBrowserSupabase();
     if (!supabase) return;
-    Promise.all([
-      supabase.rpc("get_catalogue_filters", {
-        p_set_name: setFilter !== "all" ? setFilter : null,
-        p_category: categoryFilter !== "all" ? categoryFilter : null,
-      }),
-      supabase.from("cards").select("set_name, category").eq("status", "published").not("set_name", "is", null),
-    ]).then(([{ data }, { data: catData }]) => {
-      const setCategoryMap: Record<string, string> = {};
-      for (const row of (catData ?? [])) {
-        if (row.set_name && row.category) setCategoryMap[row.set_name] = row.category;
-      }
+    supabase.rpc("get_catalogue_filters", {
+      p_set_name: setFilter !== "all" ? setFilter : null,
+      p_category: categoryFilter !== "all" ? categoryFilter : null,
+    }).then(({ data }) => {
       if (data?.[0]) setFilterOptions({
         sets: data[0].sets ?? [],
         teams: data[0].teams ?? [],
         parallels: data[0].parallels ?? [],
-        setCategoryMap,
       });
     });
   }, [setFilter, categoryFilter]);
 
-  // Debounced search — avoid firing an RPC on every keystroke
+  // Debounced search â€” avoid firing an RPC on every keystroke
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [debouncedQuery, setDebouncedQuery] = useState(query);
   useEffect(() => {
@@ -248,7 +146,7 @@ export function CatalogueGrid() {
     return () => { if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current); };
   }, [query]);
 
-  // Build the RPC params object — used both for reset-and-fetch and load-more
+  // Build the RPC params object â€” used both for reset-and-fetch and load-more
   const rpcParams = useMemo(() => ({
     p_set_name:  setFilter !== "all" ? setFilter : null,
     p_team:      teamFilter !== "all" ? teamFilter : null,
@@ -300,7 +198,7 @@ export function CatalogueGrid() {
     fetchPage(0, false);
   }, [fetchPage]);
 
-  // Infinite scroll — load next page when sentinel enters viewport
+  // Infinite scroll â€” load next page when sentinel enters viewport
   useEffect(() => {
     if (!sentinelRef.current || !hasMore || loadingMore) return;
     const observer = new IntersectionObserver(
@@ -321,7 +219,7 @@ export function CatalogueGrid() {
   // that parallel's row. The RPC returns base cards only; parallel row data
   // is not available client-side, so we re-query for the specific parallel
   // card when the filter is active. For now we show the base card image and
-  // swap price/stock from the parallel_names list — a full parallel-row swap
+  // swap price/stock from the parallel_names list â€” a full parallel-row swap
   // would require a separate query per card which is N+1. The parallel filter
   // already scopes the DB query to only cards that have that parallel, so the
   // correct cards are shown; the tile just displays the base image.
@@ -333,8 +231,8 @@ export function CatalogueGrid() {
   return (
     <div className="space-y-4">
 
-      {/* ══ HEADER PANEL ══════════════════════════════════════════════════ */}
-      <section className="rounded-3xl p-6 sm:p-8 animate-fade-up relative z-10" style={{ background: "#D6D0C4" }}>
+      {/* â•â• HEADER PANEL â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+      <section className="rounded-3xl p-6 sm:p-8 animate-fade-up" style={{ background: "#D6D0C4" }}>
         <div className="pointer-events-none absolute -top-12 right-12 h-40 w-40 rounded-full opacity-40" style={{ background: "radial-gradient(circle, rgba(8,123,117,0.4), transparent 70%)", filter: "blur(32px)" }} />
 
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -344,7 +242,7 @@ export function CatalogueGrid() {
               Browse Catalogue
             </h1>
             <p className="mt-1 text-[13px]" style={{ color: "rgba(0,0,0,0.4)" }}>
-              {isLoading ? "Loading the vault..." : `${totalCount} card${totalCount !== 1 ? "s" : ""} available · Find your next chase card.`}
+              {isLoading ? "Loading the vault..." : `${totalCount} card${totalCount !== 1 ? "s" : ""} available Â· Find your next chase card.`}
             </p>
           </div>
           <div className="relative w-full sm:w-72">
@@ -356,7 +254,7 @@ export function CatalogueGrid() {
               className="w-full rounded-xl py-2.5 pl-10 pr-4 text-[13px] outline-none transition"
               style={{ background: "white", border: "1px solid rgba(0,0,0,0.1)", color: "#1c1917" }}
             />
-            {query && <button onClick={() => setQuery("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px]" style={{ color: "rgba(0,0,0,0.3)" }}>✕</button>}
+            {query && <button onClick={() => setQuery("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px]" style={{ color: "rgba(0,0,0,0.3)" }}>âœ•</button>}
           </div>
         </div>
 
@@ -365,9 +263,9 @@ export function CatalogueGrid() {
           <div className="flex flex-wrap gap-2">
             {[
               { label: "All Sets", action: () => { setCategoryFilter("all"); setInStockOnly(false); }, active: categoryFilter === "all" && !inStockOnly },
-              { label: "⚽ Football", action: () => setCategoryFilter(categoryFilter === "Football" ? "all" : "Football"), active: categoryFilter === "Football" },
-              { label: "✨ Disney", action: () => setCategoryFilter(categoryFilter === "Disney" ? "all" : "Disney"), active: categoryFilter === "Disney" },
-              { label: "📦 In Stock", action: () => setInStockOnly((v: boolean) => !v), active: inStockOnly },
+              { label: "âš½ Football", action: () => setCategoryFilter(categoryFilter === "Football" ? "all" : "Football"), active: categoryFilter === "Football" },
+              { label: "âœ¨ Disney", action: () => setCategoryFilter(categoryFilter === "Disney" ? "all" : "Disney"), active: categoryFilter === "Disney" },
+              { label: "ðŸ“¦ In Stock", action: () => setInStockOnly((v: boolean) => !v), active: inStockOnly },
             ].map((cat) => (
               <button key={cat.label} type="button" onClick={cat.action}
                 className="rounded-full px-4 py-1.5 text-[13px] font-semibold transition-all duration-150"
@@ -377,12 +275,12 @@ export function CatalogueGrid() {
             ))}
           </div>
           <div className="flex gap-2">
-            <SetsPicker
-              sets={filterOptions.sets}
-              setCategoryMap={filterOptions.setCategoryMap}
-              value={setFilter}
-              onChange={(v) => { setSetFilter(v); setTeamFilter("all"); setParallelFilter("all"); }}
-            />
+            <select value={setFilter} onChange={(e) => { setSetFilter(e.target.value); setTeamFilter("all"); setParallelFilter("all"); }}
+              className="rounded-xl px-3 py-1.5 text-[13px] outline-none"
+              style={{ background: "white", border: "1px solid rgba(0,0,0,0.1)", color: "#374151" }}>
+              <option value="all">All Sets</option>
+              {filterOptions.sets.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
             <select value={parallelFilter} onChange={(e) => setParallelFilter(e.target.value)}
               className="rounded-xl px-3 py-1.5 text-[13px] outline-none"
               style={{ background: "white", border: "1px solid rgba(0,0,0,0.1)", color: "#374151" }}>
@@ -392,15 +290,15 @@ export function CatalogueGrid() {
             <button type="button" onClick={() => setShowFilters((v: boolean) => !v)}
               className="rounded-xl px-3 py-1.5 text-[13px] font-semibold transition"
               style={showFilters ? pillActive : pillInactive}>
-              Filters {showFilters ? "↑" : "↓"}
+              Filters {showFilters ? "â†‘" : "â†“"}
             </button>
             <select value={sortBy} onChange={(e) => setSortBy(e.target.value as SortOption)}
               className="rounded-xl px-3 py-1.5 text-[13px] outline-none"
               style={{ background: "white", border: "1px solid rgba(0,0,0,0.1)", color: "#374151" }}>
               <option value="cardNumber">Card #</option>
               <option value="playerName">Player</option>
-              <option value="priceLow">Price ↑</option>
-              <option value="priceHigh">Price ↓</option>
+              <option value="priceLow">Price â†‘</option>
+              <option value="priceHigh">Price â†“</option>
             </select>
           </div>
         </div>
@@ -417,7 +315,7 @@ export function CatalogueGrid() {
         )}
       </section>
 
-      {/* ══ LOADING ════════════════════════════════════════════════════════ */}
+      {/* â•â• LOADING â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
       {isLoading && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           {Array.from({ length: 8 }).map((_, i) => (
@@ -429,10 +327,10 @@ export function CatalogueGrid() {
       {loadError && <div className="rounded-2xl p-6 text-sm" style={{ background: "rgba(220,38,38,0.1)", color: "#fca5a5", border: "1px solid rgba(220,38,38,0.2)" }}>{loadError}</div>}
 
       {!isLoading && !loadError && visibleCards.length === 0 && (
-        <EmptyState icon="🔍" title="No cards match your search" description="Try different keywords or clear your filters." actions={[{ label: "Browse all cards", href: "/catalogue", primary: true }]} />
+        <EmptyState icon="ðŸ”" title="No cards match your search" description="Try different keywords or clear your filters." actions={[{ label: "Browse all cards", href: "/catalogue", primary: true }]} />
       )}
 
-      {/* ══ CARD GRID ══════════════════════════════════════════════════════ */}
+      {/* â•â• CARD GRID â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
       {!isLoading && !loadError && visibleCards.length > 0 && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 stagger-grid">
           {visibleCards.map((card) => {
@@ -480,7 +378,7 @@ export function CatalogueGrid() {
                     ) : (
                       <div className="absolute inset-0 flex flex-col items-center justify-center gap-3"
                         style={{ background: category === "Disney" ? "linear-gradient(135deg, #1a1a2e, #16213e)" : "linear-gradient(135deg, #0d1a0d, #0a1a12)" }}>
-                        <span className="text-4xl opacity-30">{category === "Disney" ? "✨" : "⚽"}</span>
+                        <span className="text-4xl opacity-30">{category === "Disney" ? "âœ¨" : "âš½"}</span>
                       </div>
                     )}
                     <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
@@ -497,7 +395,7 @@ export function CatalogueGrid() {
                   <div className="p-3">
                     <p className="truncate text-[13px] font-bold text-zinc-900">{card.playerName}</p>
                     <p className="mt-0.5 text-[11px]" style={{ color: "rgba(0,0,0,0.4)" }}>{card.setName}</p>
-                    <p className="text-[10px]" style={{ color: "rgba(0,0,0,0.35)" }}>#{card.cardNumber}{card.parallel ? ` · ${card.parallel}` : ""}</p>
+                    <p className="text-[10px]" style={{ color: "rgba(0,0,0,0.35)" }}>#{card.cardNumber}{card.parallel ? ` Â· ${card.parallel}` : ""}</p>
                     <div className="mt-2 flex items-center justify-between">
                       <p className="text-[14px] font-black" style={{ color: "#F26A21" }}>{formatGBP(card.price)}</p>
                     </div>
@@ -521,7 +419,7 @@ export function CatalogueGrid() {
                     className={`w-full rounded-xl py-2 text-[13px] font-bold transition-all ${isOOS || maxed ? "cursor-not-allowed opacity-40" : justAdded ? "animate-added-chip" : "btn-gold"}`}
                     style={isOOS || maxed ? { background: "rgba(0,0,0,0.06)", color: "rgba(0,0,0,0.3)" } : justAdded ? { background: "rgba(8,123,117,0.12)", color: "#087B75", border: "1px solid rgba(8,123,117,0.3)" } : {}}
                   >
-                    {isOOS ? "Out of stock" : maxed ? "Max qty" : justAdded ? "✓ Added" : "Add to Cart"}
+                    {isOOS ? "Out of stock" : maxed ? "Max qty" : justAdded ? "âœ“ Added" : "Add to Cart"}
                   </button>
                 </div>
               </article>

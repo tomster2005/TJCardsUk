@@ -616,39 +616,40 @@ export default function ProcessBatchPage() {
     }
   }, [currentIndex, pairs, ocrWorker]);
 
-  // Load batches
+  // Load batches from R2
   useEffect(() => {
-    if (!supabase) return;
     (async () => {
-      const { data, error: e } = await supabase.storage.from("card-images").list("", { limit: 100, sortBy: { column: "name", order: "desc" } });
-      if (e) { setError(e.message); setLoading(false); return; }
-      const folders = (data || [])
-        .map(f => f.name)
-        .filter(name => name && !name.includes(".emptyFolderPlaceholder"))
+      const res = await fetch("/api/r2/list?delimiter=/");
+      const data = await res.json();
+      if (data.error) { setError(data.error); setLoading(false); return; }
+      const folders = (data.folders as string[])
+        .filter(Boolean)
         .sort((a, b) => {
-          const na = parseInt(a, 10);
-          const nb = parseInt(b, 10);
-          const aIsNum = !isNaN(na);
-          const bIsNum = !isNaN(nb);
-          if (aIsNum && bIsNum) return nb - na; // numeric: descending
-          if (aIsNum) return -1; // numeric before alpha
+          const na = parseInt(a, 10), nb = parseInt(b, 10);
+          const aIsNum = !isNaN(na), bIsNum = !isNaN(nb);
+          if (aIsNum && bIsNum) return nb - na;
+          if (aIsNum) return -1;
           if (bIsNum) return 1;
-          return b.localeCompare(a); // both alpha: descending
+          return b.localeCompare(a);
         });
       setBatches(folders);
       setLoading(false);
     })();
-  }, [supabase]);
+  }, []);
 
-  // Load pairs when batch selected
+  // Load pairs when batch selected from R2
   useEffect(() => {
-    if (!supabase || !selectedBatch) return;
+    if (!selectedBatch) return;
     (async () => {
       setLoading(true);
-      const { data, error: e } = await supabase.storage.from("card-images").list(selectedBatch, { limit: 500, sortBy: { column: "name", order: "asc" } });
-      if (e) { setError(e.message); setLoading(false); return; }
+      const res = await fetch(`/api/r2/list?prefix=${selectedBatch}/`);
+      const data = await res.json();
+      if (data.error) { setError(data.error); setLoading(false); return; }
 
-      const files = (data || []).filter(f => f.name.includes(".")).sort((a, b) => a.name.localeCompare(b.name));
+      const files = (data.files as { name: string; key: string }[])
+        .filter(f => f.name.includes("."))
+        .sort((a, b) => a.name.localeCompare(b.name));
+
       const cardMap: Record<string, { front?: string; back?: string }> = {};
       for (const f of files) {
         const match = f.name.match(/^(\d+)_(front|back)\./i);
@@ -659,21 +660,25 @@ export default function ProcessBatchPage() {
         cardMap[num][side as "front" | "back"] = f.name;
       }
 
+      const R2_URL = process.env.NEXT_PUBLIC_R2_PUBLIC_URL;
       const newPairs: ImagePair[] = [];
       for (const num of Object.keys(cardMap).sort()) {
         const entry = cardMap[num];
         if (!entry.front || !entry.back) continue;
         const frontPath = `${selectedBatch}/${entry.front}`;
         const backPath = `${selectedBatch}/${entry.back}`;
-        const { data: frontUrl } = supabase.storage.from("card-images").getPublicUrl(frontPath);
-        const { data: backUrl } = supabase.storage.from("card-images").getPublicUrl(backPath);
-        newPairs.push({ front: frontUrl.publicUrl, back: backUrl.publicUrl, frontPath, backPath });
+        newPairs.push({
+          front: `${R2_URL}/${frontPath}`,
+          back: `${R2_URL}/${backPath}`,
+          frontPath,
+          backPath,
+        });
       }
 
       setPairs(newPairs);
       setLoading(false);
     })();
-  }, [supabase, selectedBatch]);
+  }, [selectedBatch]);
 
   function advanceCard() {
     setTitle("");

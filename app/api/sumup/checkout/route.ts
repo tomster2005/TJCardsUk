@@ -111,6 +111,7 @@ export async function POST(request: NextRequest) {
   const checkoutReference = `collectra-${Date.now()}`;
   const sumupBase = (process.env.SUMUP_API_BASE?.trim() || "https://api.sumup.com").replace(/\/$/, "");
   const successBase = `${baseUrl}/checkout/success`;
+  const successWithRef = `${successBase}?ref=${encodeURIComponent(checkoutReference)}`;
 
   const itemCount = items.reduce((s, i) => s + i.quantity, 0);
   const sumupPayload = {
@@ -121,8 +122,8 @@ export async function POST(request: NextRequest) {
     pay_to_email: payToEmail,
     description: `Collectra order (${itemCount} item${itemCount !== 1 ? "s" : ""})`,
     hosted_checkout: { enabled: true },
-    redirect_url: successBase,
-    return_url: successBase,
+    redirect_url: successWithRef,
+    return_url: successWithRef,
   };
 
   const sumupRes = await fetch(`${sumupBase}/v0.1/checkouts`, {

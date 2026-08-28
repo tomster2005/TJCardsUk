@@ -177,24 +177,22 @@ function UploadModal({ card, onClose, onUploaded }: {
 
       const extMap: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
       const ext = extMap[file.type] ?? 'jpg';
-      const storagePath = `${user.id}/${card.id}_${Date.now()}.${ext}`;
-      const { error: uploadError } = await supabase.storage
-        .from("personal-card-images")
-        .upload(storagePath, file, { contentType: file.type });
+      const key = `personal/${user.id}/${card.id}_${Date.now()}.${ext}`;
 
-      if (uploadError) throw uploadError;
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("key", key);
+      const uploadRes = await fetch("/api/r2/upload", { method: "POST", body: fd });
+      if (!uploadRes.ok) {
+        const d = await uploadRes.json();
+        throw new Error(d.error ?? "Upload failed");
+      }
+      const { url: imageUrl } = await uploadRes.json();
 
-      // Generate a signed URL (1 hour) just for the immediate UI feedback
-      const { data: signedData } = await supabase.storage
-        .from("personal-card-images")
-        .createSignedUrl(storagePath, 3600);
-
-      const signedUrl = signedData?.signedUrl ?? null;
-
-      // Save storage path — NOT a public URL
+      // Save the R2 URL directly — no signed URLs needed
       const { error: personalError } = await supabase
         .from("personal_card_images")
-        .upsert({ user_id: user.id, checklist_id: card.id, storage_path: storagePath, image_url: signedUrl, prefer_personal: true }, { onConflict: "user_id,checklist_id" });
+        .upsert({ user_id: user.id, checklist_id: card.id, storage_path: key, image_url: imageUrl, prefer_personal: true }, { onConflict: "user_id,checklist_id" });
 
       if (personalError) throw personalError;
 
@@ -203,11 +201,10 @@ function UploadModal({ card, onClose, onUploaded }: {
         .from("user_binder_progress")
         .upsert({ user_id: user.id, checklist_id: card.id }, { onConflict: "user_id,checklist_id" });
 
-      // Only submit to community queue if user explicitly opted in
       if (shareWithCommunity) {
         await supabase.from("community_images").insert({
           checklist_id: card.id,
-          image_url: signedUrl,
+          image_url: imageUrl,
           uploaded_by: user.id,
           username,
           status: "pending",
@@ -457,22 +454,6 @@ export function BinderView() {
       return;
     }
 
-    // Generate signed URLs for personal images stored in the private bucket.
-    // All other image URLs are already public and need no signing.
-    const needsSigning = rpcRows.filter((r: any) => r.storage_path);
-    const signedMap = new Map<string, string>();
-    if (needsSigning.length > 0) {
-      const { data: signedResults } = await supabase.storage
-        .from("personal-card-images")
-        .createSignedUrls(needsSigning.map((r: any) => r.storage_path), 3600);
-      if (signedResults) {
-        for (let i = 0; i < needsSigning.length; i++) {
-          const url = signedResults[i]?.signedUrl;
-          if (url) signedMap.set(needsSigning[i].storage_path, url);
-        }
-      }
-    }
-
     const merged: ChecklistCard[] = rpcRows.map((row: any) => ({
       id:               row.id,
       card_number:      row.card_number,
@@ -485,9 +466,7 @@ export function BinderView() {
       stock:            row.stock ?? 0,
       community_image:  row.community_image ?? null,
       community_credit: row.community_credit ?? null,
-      personal_image:   row.storage_path
-        ? (signedMap.get(row.storage_path) ?? row.personal_image ?? null)
-        : (row.personal_image ?? null),
+      personal_image:   row.personal_image ?? null,
       prefer_personal:  row.prefer_personal ?? false,
       collected:        row.collected ?? false,
     }));

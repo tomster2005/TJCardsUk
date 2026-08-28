@@ -40,11 +40,26 @@ function CheckoutSuccessContent() {
     );
   }, [searchParams]);
 
+  const checkoutRef = useMemo(() => searchParams.get("ref"), [searchParams]);
+
   useEffect(() => {
     let cancelled = false;
 
     async function verifyAndFinalize() {
-      if (!checkoutId) {
+      let resolvedCheckoutId = checkoutId;
+
+      // If no checkoutId in sessionStorage (common on mobile after redirect),
+      // look it up from pending_orders using the checkout_reference in the URL
+      if (!resolvedCheckoutId && checkoutRef) {
+        const supabase = getBrowserSupabase();
+        const { data: pending } = await supabase!.from("pending_orders")
+          .select("sumup_checkout_id")
+          .eq("checkout_reference", checkoutRef)
+          .single();
+        resolvedCheckoutId = pending?.sumup_checkout_id ?? null;
+      }
+
+      if (!resolvedCheckoutId) {
         setStatus("pending");
         setMessage("We could not find a checkout ID. If you completed payment, please contact support.");
         return;
@@ -66,9 +81,8 @@ function CheckoutSuccessContent() {
         method: "POST",
         headers,
         body: JSON.stringify({
-          checkoutId,
+          checkoutId: resolvedCheckoutId,
           shippingDetails: shipping,
-          // userId intentionally omitted — server derives it from the JWT
         }),
       });
 
@@ -112,7 +126,7 @@ function CheckoutSuccessContent() {
 
     void verifyAndFinalize();
     return () => { cancelled = true; };
-  }, [checkoutId, user?.id]);
+  }, [checkoutId, checkoutRef, user?.id]);
 
   const subtotal = orderItems.reduce((sum, i) => sum + (i.price ?? 0) * i.quantity, 0);
   const shippingCost = shippingDetails?.shippingRate?.price ?? 0;
