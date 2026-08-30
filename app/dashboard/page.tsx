@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { formatGBP } from "@/lib/currency";
 import { thumbUrl } from "@/lib/images";
+import { AdBanner } from "@/components/AdBanner";
 
 type SetSlide = {
   name: string;
@@ -493,6 +494,9 @@ export default function DashboardPage() {
             </div>
           </section>
         )}
+
+        {/* ══ AD BANNER ═════════════════════════════════════════════════ */}
+        <AdBanner />
 
         {/* ══ QUICK ACTIONS ═════════════════════════════════════════════════ */}
         <section className="animate-fade-up rounded-3xl p-6" style={{ background: "#D6D0C4", animationDelay: "160ms" }}>
