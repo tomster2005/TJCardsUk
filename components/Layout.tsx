@@ -3,12 +3,15 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCart } from "@/contexts/CartContext";
 import { CartDrawer } from "@/components/CartDrawer";
 import { FlyToCartLayer } from "@/components/FlyToCart";
 import { GridIcon, SearchIcon, BookIcon, CartIcon, LayersIcon, MissingIcon, ProfileIcon } from "@/components/ui/icons";
+import getBrowserSupabase from "@/lib/supabase/client";
+import { thumbUrl } from "@/lib/images";
+import { buildPublicCardPath } from "@/lib/cards/slug";
 
 
 const sidebarNav = [
@@ -80,6 +83,95 @@ function Sidebar() {
   );
 }
 
+type SearchHit = { id: string; player: string; card_number: string; set_name: string; set_slug: string | null; card_slug: string | null; image_url: string | null; price: number };
+
+function GlobalSearch() {
+  const pathname = usePathname();
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<SearchHit[]>([]);
+  const [open, setOpen] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => { setQuery(""); setResults([]); setOpen(false); }, [pathname]);
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (!query.trim()) { setResults([]); setOpen(false); return; }
+    debounceRef.current = setTimeout(async () => {
+      const supabase = getBrowserSupabase();
+      if (!supabase) return;
+      const { data } = await supabase.rpc("get_catalogue_page", {
+        p_search: query.trim(), p_limit: 6, p_offset: 0,
+        p_set_name: null, p_team: null, p_parallel: null, p_category: null, p_in_stock: false, p_sort: "playerName",
+      });
+      setResults((data ?? []).slice(0, 6));
+      setOpen(true);
+    }, 300);
+  }, [query]);
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, []);
+
+  if (pathname.startsWith("/catalogue")) return null;
+
+  return (
+    <div ref={wrapperRef} className="flex-1 max-w-xl hidden sm:block relative">
+      <SearchIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 z-10" style={{ color: "rgba(255,255,255,0.3)" }} />
+      <input
+        type="text"
+        value={query}
+        onChange={e => setQuery(e.target.value)}
+        onFocus={() => results.length > 0 && setOpen(true)}
+        placeholder="Search cards, players, sets..."
+        className="w-full rounded-xl py-2.5 pl-10 pr-4 text-[13px] outline-none"
+        style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.7)" }}
+      />
+      {query && (
+        <button onClick={() => { setQuery(""); setResults([]); setOpen(false); }}
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px]" style={{ color: "rgba(255,255,255,0.3)" }}>✕</button>
+      )}
+      {open && results.length > 0 && (
+        <div className="absolute left-0 right-0 top-full mt-1.5 z-50 rounded-2xl overflow-hidden shadow-2xl"
+          style={{ background: "#131a1a", border: "1px solid rgba(255,255,255,0.08)" }}>
+          {results.map(hit => {
+            const href = hit.set_slug && hit.card_slug
+              ? `/catalogue/${hit.set_slug}/${hit.card_slug}`
+              : buildPublicCardPath({ setName: hit.set_name, player: hit.player, cardNumber: hit.card_number });
+            return (
+              <Link key={hit.id} href={href}
+                onClick={() => { setOpen(false); setQuery(""); }}
+                className="flex items-center gap-3 px-4 py-2.5 transition hover:bg-white/5">
+                <div className="h-10 w-7 shrink-0 overflow-hidden rounded-md" style={{ background: "#0d1a1a" }}>
+                  {hit.image_url
+                    ? <img src={thumbUrl(hit.image_url, 60)} alt={hit.player} width={28} height={40} className="h-full w-full object-cover" />
+                    : <span className="flex h-full w-full items-center justify-center text-base">🃏</span>}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[13px] font-semibold text-white">{hit.player}</p>
+                  <p className="truncate text-[11px]" style={{ color: "rgba(255,255,255,0.35)" }}>#{hit.card_number} · {hit.set_name}</p>
+                </div>
+                <span className="text-[13px] font-bold shrink-0" style={{ color: "#F26A21" }}>£{Number(hit.price).toFixed(2)}</span>
+              </Link>
+            );
+          })}
+          <Link href={`/catalogue?q=${encodeURIComponent(query)}`}
+            onClick={() => { setOpen(false); setQuery(""); }}
+            className="flex items-center justify-center gap-1.5 px-4 py-2.5 text-[12px] font-semibold transition hover:bg-white/5"
+            style={{ color: "rgba(255,255,255,0.4)", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+            See all results for "{query}" →
+          </Link>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TopBar() {
   const pathname = usePathname();
   const { itemCount, openCart, addEventCount } = useCart();
@@ -125,19 +217,7 @@ function TopBar() {
         </Link>
 
         {/* Search */}
-        <div className="flex-1 max-w-xl hidden sm:block">
-          <div className="relative">
-            <SearchIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4" style={{ color: "rgba(255,255,255,0.3)" }} />
-            <input
-              type="text"
-              placeholder="Search cards, players, sets..."
-              className="w-full rounded-xl py-2.5 pl-10 pr-4 text-[13px] outline-none cursor-pointer"
-              style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.7)" }}
-              readOnly
-              onClick={() => { window.location.href = "/catalogue"; }}
-            />
-          </div>
-        </div>
+        <GlobalSearch />
 
         {/* Desktop nav — Cart only */}
         <div className="hidden lg:flex items-center ml-auto">

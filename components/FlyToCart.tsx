@@ -16,8 +16,13 @@ let flyQueue: ((item: Omit<FlyingItem, "id">) => void) | null = null;
 
 export function triggerFlyToCart(imageUrl: string, startRect: DOMRect) {
   if (!flyQueue) return;
-  const cartEl = document.querySelector("[data-cart-icon]");
-  // Fall back to top-right corner if cart icon not found
+  // Find the visible cart icon (not hidden by display:none or visibility)
+  const cartEls = document.querySelectorAll("[data-cart-icon]");
+  let cartEl: Element | null = null;
+  for (const el of Array.from(cartEls)) {
+    const rect = el.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) { cartEl = el; break; }
+  }
   const endX = cartEl ? cartEl.getBoundingClientRect().left + cartEl.getBoundingClientRect().width / 2 : window.innerWidth - 40;
   const endY = cartEl ? cartEl.getBoundingClientRect().top + cartEl.getBoundingClientRect().height / 2 : 24;
   flyQueue({

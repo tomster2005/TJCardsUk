@@ -405,7 +405,7 @@ export function CatalogueGrid() {
           </div>
         </div>
 
-        {showFilters && filterOptions.teams.length > 0 && (
+        {showFilters && categoryFilter === "Football" && filterOptions.teams.length > 0 && (
           <div className="mt-3 animate-fade-up">
             <select value={teamFilter} onChange={(e) => setTeamFilter(e.target.value)}
               className="rounded-xl px-3 py-2 text-[13px] outline-none"

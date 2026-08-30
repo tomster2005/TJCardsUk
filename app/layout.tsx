@@ -66,6 +66,13 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} ${playfair.variable} h-full antialiased`}
     >
+      <head>
+        <script
+          async
+          src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4200997769629587"
+          crossOrigin="anonymous"
+        />
+      </head>
       <body className="min-h-full bg-[#f8f6f2] text-zinc-800">
         <AuthProvider>
           <CartProvider>{children}</CartProvider>

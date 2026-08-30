@@ -221,43 +221,52 @@ export function SiteNav() {
         </div>
       </div>
 
-      {/* Mobile Menu */}
+      {/* Mobile Menu — fixed overlay so it appears wherever you are on the page */}
       {mobileOpen && (
-        <div className="animate-nav-drop px-4 py-3 md:hidden" style={{ borderTop: "1px solid rgba(255,255,255,0.06)", background: "#131a1a" }}>
-          <div className="flex flex-col gap-0.5">
-            {primaryNav.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={() => setMobileOpen(false)}
-                className="inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-[13px] font-medium transition-all"
-                style={isActive(item.href) ? activeLinkStyle : inactiveLinkStyle}
-              >
-                {item.icon}{item.label}
-              </Link>
-            ))}
-            <div className="my-2 h-px" style={{ background: "rgba(255,255,255,0.06)" }} />
-            {secondaryNav.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={() => setMobileOpen(false)}
-                className="rounded-xl px-3.5 py-2 text-[13px] font-medium transition-all"
-                style={isActive(item.href) ? activeLinkStyle : inactiveLinkStyle}
-              >
-                {item.label}
-              </Link>
-            ))}
-            <div className="my-2 h-px" style={{ background: "rgba(255,255,255,0.06)" }} />
-            {user
-              ? <button onClick={() => signOut()} className="rounded-xl px-3.5 py-2 text-left text-[13px] font-medium" style={{ color: "#f87171" }}>Sign out</button>
-              : <Link href="/login" onClick={() => setMobileOpen(false)} className="rounded-xl px-3.5 py-2 text-[13px] font-medium" style={inactiveLinkStyle}>Sign in</Link>
-            }
-            <div className="my-2 h-px" style={{ background: "rgba(255,255,255,0.06)" }} />
-            <div className="flex gap-2 px-1">
-              <Link href="/terms" onClick={() => setMobileOpen(false)} className="text-[11px]" style={{ color: "rgba(255,255,255,0.3)" }}>Terms &amp; Conditions</Link>
-              <span style={{ color: "rgba(255,255,255,0.2)" }}>·</span>
-              <Link href="/returns" onClick={() => setMobileOpen(false)} className="text-[11px]" style={{ color: "rgba(255,255,255,0.3)" }}>Returns Policy</Link>
+        <div className="fixed inset-0 z-50 md:hidden" onClick={() => setMobileOpen(false)}>
+          {/* Backdrop */}
+          <div className="absolute inset-0" style={{ background: "rgba(0,0,0,0.5)" }} />
+          {/* Drawer from right */}
+          <div
+            className="absolute right-0 top-0 h-full w-72 overflow-y-auto py-4 px-4"
+            style={{ background: "#131a1a", borderLeft: "1px solid rgba(255,255,255,0.08)" }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex flex-col gap-0.5">
+              {primaryNav.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={() => setMobileOpen(false)}
+                  className="inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-[13px] font-medium transition-all"
+                  style={isActive(item.href) ? activeLinkStyle : inactiveLinkStyle}
+                >
+                  {item.icon}{item.label}
+                </Link>
+              ))}
+              <div className="my-2 h-px" style={{ background: "rgba(255,255,255,0.06)" }} />
+              {secondaryNav.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={() => setMobileOpen(false)}
+                  className="rounded-xl px-3.5 py-2 text-[13px] font-medium transition-all"
+                  style={isActive(item.href) ? activeLinkStyle : inactiveLinkStyle}
+                >
+                  {item.label}
+                </Link>
+              ))}
+              <div className="my-2 h-px" style={{ background: "rgba(255,255,255,0.06)" }} />
+              {user
+                ? <button onClick={() => signOut()} className="rounded-xl px-3.5 py-2 text-left text-[13px] font-medium" style={{ color: "#f87171" }}>Sign out</button>
+                : <Link href="/login" onClick={() => setMobileOpen(false)} className="rounded-xl px-3.5 py-2 text-[13px] font-medium" style={inactiveLinkStyle}>Sign in</Link>
+              }
+              <div className="my-2 h-px" style={{ background: "rgba(255,255,255,0.06)" }} />
+              <div className="flex gap-2 px-1">
+                <Link href="/terms" onClick={() => setMobileOpen(false)} className="text-[11px]" style={{ color: "rgba(255,255,255,0.3)" }}>Terms &amp; Conditions</Link>
+                <span style={{ color: "rgba(255,255,255,0.2)" }}>·</span>
+                <Link href="/returns" onClick={() => setMobileOpen(false)} className="text-[11px]" style={{ color: "rgba(255,255,255,0.3)" }}>Returns Policy</Link>
+              </div>
             </div>
           </div>
         </div>

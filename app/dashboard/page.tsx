@@ -8,7 +8,13 @@ import { useAuth } from "@/contexts/AuthContext";
 import { formatGBP } from "@/lib/currency";
 import { thumbUrl } from "@/lib/images";
 
-type SetSlide = { name: string; cards: { image_url: string | null; player: string; card_number: string }[] };
+type SetSlide = {
+  name: string;
+  setId: string | null;
+  cards: { image_url: string | null; player: string; card_number: string }[];
+  totalCards: number;
+  collectedCards: number;
+};
 
 type DashboardStats = {
   totalCards: number;
@@ -24,6 +30,22 @@ type CollectionStats = {
   total: number;
   pct: number;
 };
+
+function Tooltip({ text, children }: { text: string; children: React.ReactNode }) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <span className="relative min-w-0" onMouseEnter={() => setVisible(true)} onMouseLeave={() => setVisible(false)}>
+      {children}
+      {visible && (
+        <span className="pointer-events-none absolute left-0 top-full z-50 mt-1.5 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-[11px] font-medium shadow-xl"
+          style={{ background: "#1a2a2a", color: "rgba(255,255,255,0.85)", border: "1px solid rgba(255,255,255,0.1)", backdropFilter: "blur(8px)" }}>
+          {text}
+          <span className="absolute -top-1 left-4 h-2 w-2 rotate-45" style={{ background: "#1a2a2a", border: "1px solid rgba(255,255,255,0.1)", borderBottom: "none", borderRight: "none" }} />
+        </span>
+      )}
+    </span>
+  );
+}
 
 function AnimatedCounter({ value }: { value: number }) {
   const [n, setN] = useState(0);
@@ -64,6 +86,30 @@ export default function DashboardPage() {
         .select("id, player, set_name, card_number, image_url, stock, status, created_at, price");
 
       const { data: binderSets } = await supabase.from("binder_sets").select("id, title");
+      const binderSetList = binderSets || [];
+
+      // Per-set checklist totals
+      const { data: checklistCounts } = await supabase
+        .from("binder_checklist")
+        .select("set_id")
+        .in("set_id", binderSetList.map((s: any) => s.id));
+      const checklistBySet: Record<string, number> = {};
+      for (const row of (checklistCounts ?? [])) {
+        checklistBySet[row.set_id] = (checklistBySet[row.set_id] ?? 0) + 1;
+      }
+
+      // Per-set user progress
+      const progressBySet: Record<string, number> = {};
+      if (user) {
+        const { data: userProgress } = await supabase
+          .from("user_binder_progress")
+          .select("checklist_id, binder_checklist(set_id)")
+          .eq("user_id", user.id);
+        for (const row of (userProgress ?? [])) {
+          const sid = (row.binder_checklist as any)?.set_id;
+          if (sid) progressBySet[sid] = (progressBySet[sid] ?? 0) + 1;
+        }
+      }
 
       const allCards = cards || [];
       const setNames = new Set(allCards.map(c => c.set_name));
@@ -73,10 +119,20 @@ export default function DashboardPage() {
       const allSets: SetSlide[] = [];
       for (const setName of Array.from(setNames)) {
         const setCards = allCards.filter(c => c.set_name === setName && c.image_url).slice(0, 3);
-        if (setCards.length > 0) allSets.push({ name: setName, cards: setCards });
+        if (setCards.length > 0) {
+          const matchedBinder = binderSetList.find((b: any) => b.title === setName);
+          const setId = matchedBinder?.id ?? null;
+          allSets.push({
+            name: setName,
+            setId,
+            cards: setCards,
+            totalCards: setId ? (checklistBySet[setId] ?? 0) : 0,
+            collectedCards: setId ? (progressBySet[setId] ?? 0) : 0,
+          });
+        }
       }
 
-      setStats({ totalCards: allCards.length, totalStock, sets: setNames.size, binderSets: (binderSets || []).length, recentCards: recent, allSets });
+      setStats({ totalCards: allCards.length, totalStock, sets: setNames.size, binderSets: binderSetList.length, recentCards: recent, allSets });
 
       if (user) {
         const [, progressRes, hiddenRes] = await Promise.all([
@@ -144,7 +200,7 @@ export default function DashboardPage() {
       <div className="space-y-4">
 
         {/* ══ TOP ROW: Hero + Featured Set ══════════════════════════════════ */}
-        <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
+        <div className="grid gap-4 lg:grid-cols-[1fr_380px] lg:items-stretch">
 
           {/* Hero — cream panel */}
           <section className="relative overflow-hidden rounded-3xl animate-fade-up" style={{ background: "#D6D0C4" }}>
@@ -221,18 +277,36 @@ export default function DashboardPage() {
             </div>
           </section>
 
-          {/* Sets Slideshow */}
+          {/* Sets Panel */}
           {stats?.allSets.length ? (() => {
-            const slide = stats.allSets[setSlide];
+            const DESKTOP_PAGE = 3;
+            const totalSets = stats.allSets.length;
+            const desktopPage = Math.floor(setSlide / DESKTOP_PAGE);
+            const totalDesktopPages = Math.ceil(totalSets / DESKTOP_PAGE);
+            const desktopSets = stats.allSets.slice(desktopPage * DESKTOP_PAGE, desktopPage * DESKTOP_PAGE + DESKTOP_PAGE);
+            const mobileSlide = stats.allSets[setSlide];
+
+            function desktopPageBy(dir: "left" | "right") {
+              if (slideTimer.current) clearInterval(slideTimer.current);
+              const next = dir === "right"
+                ? Math.min((desktopPage + 1) * DESKTOP_PAGE, totalSets - 1)
+                : Math.max((desktopPage - 1) * DESKTOP_PAGE, 0);
+              setSlideDir(dir);
+              setSetSlide(next);
+            }
+
             return (
-              <section className="relative overflow-hidden rounded-3xl animate-fade-up" style={{ background: "linear-gradient(145deg, #0a1a1a, #0d2020)", border: "1px solid rgba(8,123,117,0.2)" }}>
+              <section className="relative overflow-hidden rounded-3xl animate-fade-up flex flex-col" style={{ background: "linear-gradient(145deg, #0a1a1a, #0d2020)", border: "1px solid rgba(8,123,117,0.2)" }}>
                 <div className="pointer-events-none absolute -bottom-12 -right-12 h-48 w-48 rounded-full" style={{ background: "radial-gradient(circle, rgba(242,106,33,0.4), transparent 70%)", filter: "blur(32px)" }} />
                 <div className="pointer-events-none absolute top-0 left-0 h-32 w-32 rounded-full" style={{ background: "radial-gradient(circle, rgba(8,123,117,0.3), transparent 70%)", filter: "blur(24px)" }} />
-                <div className="relative p-7 pb-4 flex flex-col">
-                  <div className="flex items-center justify-between mb-3">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.3em]" style={{ color: "rgba(8,163,155,0.7)" }}>Sets Available</p>
-                    <div className="flex items-center gap-2">
-                      <div className="flex gap-1 mr-1">
+
+                <div className="relative p-6 flex flex-col flex-1">
+                  {/* Header */}
+                  <div className="flex items-center justify-between mb-4">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.3em]" style={{ color: "rgba(8,163,155,0.7)" }}>Collection Progress</p>
+                    <div className="flex items-center gap-1.5">
+                      {/* Mobile dots */}
+                      <div className="flex gap-1 mr-1 lg:hidden">
                         {stats.allSets.map((_, i) => (
                           <button key={i}
                             onClick={() => { if (slideTimer.current) clearInterval(slideTimer.current); setSlideDir(i > setSlide ? "right" : "left"); setSetSlide(i); }}
@@ -241,48 +315,121 @@ export default function DashboardPage() {
                           />
                         ))}
                       </div>
-                      <button onClick={() => manualSlide("left")}
-                        className="flex h-7 w-7 items-center justify-center rounded-full text-white transition hover:bg-white/10"
+                      {/* Desktop page indicator */}
+                      <span className="hidden lg:block text-[11px] mr-1" style={{ color: "rgba(255,255,255,0.3)" }}>
+                        {desktopPage + 1}/{totalDesktopPages}
+                      </span>
+                      <button
+                        onClick={() => { manualSlide("left"); }}
+                        className="lg:hidden flex h-7 w-7 items-center justify-center rounded-full text-white transition hover:bg-white/10"
                         style={{ border: "1px solid rgba(255,255,255,0.15)" }}>←</button>
-                      <button onClick={() => manualSlide("right")}
-                        className="flex h-7 w-7 items-center justify-center rounded-full text-white transition hover:bg-white/10"
+                      <button
+                        onClick={() => desktopPageBy("left")}
+                        disabled={desktopPage === 0}
+                        className="hidden lg:flex h-7 w-7 items-center justify-center rounded-full text-white transition hover:bg-white/10 disabled:opacity-30"
+                        style={{ border: "1px solid rgba(255,255,255,0.15)" }}>←</button>
+                      <button
+                        onClick={() => { manualSlide("right"); }}
+                        className="lg:hidden flex h-7 w-7 items-center justify-center rounded-full text-white transition hover:bg-white/10"
+                        style={{ border: "1px solid rgba(255,255,255,0.15)" }}>→</button>
+                      <button
+                        onClick={() => desktopPageBy("right")}
+                        disabled={desktopPage >= totalDesktopPages - 1}
+                        className="hidden lg:flex h-7 w-7 items-center justify-center rounded-full text-white transition hover:bg-white/10 disabled:opacity-30"
                         style={{ border: "1px solid rgba(255,255,255,0.15)" }}>→</button>
                     </div>
                   </div>
-                  <div className="flex flex-col pb-4" style={{
+
+                  {/* Mobile: single slide */}
+                  <div className="lg:hidden flex flex-col pb-2" style={{
                     opacity: sliding ? 0 : 1,
                     transform: sliding ? `translateX(${slideDir === "right" ? "20px" : "-20px"})` : "translateX(0)",
                     transition: "opacity 0.3s ease, transform 0.3s ease",
                   }}>
-                    <h2 className="text-3xl font-black text-white leading-tight truncate">{slide.name}</h2>
-                    <p className="mt-2 text-[13px]" style={{ color: "rgba(255,255,255,0.45)" }}>{setSlide + 1} of {stats.allSets.length} sets</p>
+                    <h2 className="text-2xl font-black text-white leading-tight truncate">{mobileSlide.name}</h2>
+                    <p className="mt-1 text-[13px]" style={{ color: "rgba(255,255,255,0.45)" }}>{setSlide + 1} of {totalSets} sets</p>
                     <Link href="/catalogue"
-                      className="mt-4 inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-[13px] font-bold text-white transition hover:-translate-y-0.5 self-start"
+                      className="mt-3 inline-flex items-center gap-2 rounded-xl px-4 py-2 text-[13px] font-bold text-white transition hover:-translate-y-0.5 self-start"
                       style={{ background: "#087B75", boxShadow: "0 4px 16px rgba(8,123,117,0.4)" }}>
-                      Explore Series →
+                      Explore →
                     </Link>
-                    <div className="mt-4 pt-4 flex items-end justify-end gap-2 overflow-hidden pb-2">
-                      {slide.cards.slice(0, 3).map((card, i) => (
+                    <div className="mt-3 flex items-end justify-end gap-2 overflow-hidden pb-1">
+                      {mobileSlide.cards.slice(0, 3).map((card, i) => (
                         <div key={i} className="overflow-hidden rounded-xl shrink-0" style={{
-                          width: i === 1 ? 80 : 64, height: i === 1 ? 112 : 90,
+                          width: i === 1 ? 72 : 56, height: i === 1 ? 100 : 80,
                           transform: i === 0 ? "rotate(-6deg) translateY(8px)" : i === 2 ? "rotate(6deg) translateY(8px)" : "none",
-                          boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
-                          border: "1px solid rgba(255,255,255,0.1)",
+                          boxShadow: "0 8px 32px rgba(0,0,0,0.5)", border: "1px solid rgba(255,255,255,0.1)",
                           position: "relative", zIndex: i === 1 ? 2 : 1,
                         }}>
                           {card.image_url
-                            ? <img
-                                src={thumbUrl(card.image_url, 100)}
-                                alt={card.player}
-                                loading="lazy"
-                                decoding="async"
-                                width={100}
-                                height={140}
-                                className="h-full w-full object-cover" />
-                            : <div className="h-full w-full flex items-center justify-center text-2xl" style={{ background: "#131a1a" }}>🃏</div>
-                          }
+                            ? <img src={thumbUrl(card.image_url, 80)} alt={card.player} loading="lazy" decoding="async" width={80} height={112} className="h-full w-full object-cover" />
+                            : <div className="h-full w-full flex items-center justify-center text-xl" style={{ background: "#131a1a" }}>🃏</div>}
                         </div>
                       ))}
+                    </div>
+                  </div>
+
+                  {/* Desktop: compact vertical list with progress */}
+                  <div className="hidden lg:flex flex-col flex-1" style={{ gap: 0 }}>
+                    {desktopSets.map((set, i) => {
+                      const pct = set.totalCards > 0 ? Math.round((set.collectedCards / set.totalCards) * 100) : 0;
+                      const hasProgress = set.collectedCards > 0;
+                      const isLast = i === desktopSets.length - 1;
+                      return (
+                        <div key={set.name} className="flex flex-col flex-1 justify-center px-4 py-4"
+                          style={{ borderBottom: isLast ? "none" : "1px solid rgba(255,255,255,0.06)" }}>
+                          <div className="flex items-center gap-3">
+                            {/* Thumbnail strip */}
+                            <div className="flex shrink-0 -space-x-3">
+                              {set.cards.slice(0, 3).map((card, ci) => (
+                                <div key={ci} className="overflow-hidden rounded-lg shrink-0" style={{
+                                  width: 46, height: 64, position: "relative", zIndex: 3 - ci,
+                                  border: "1px solid rgba(255,255,255,0.12)",
+                                  boxShadow: "0 4px 12px rgba(0,0,0,0.6)",
+                                }}>
+                                  {card.image_url
+                                    ? <img src={thumbUrl(card.image_url, 100)} alt={card.player} width={46} height={64} className="h-full w-full object-cover" />
+                                    : <div className="h-full w-full flex items-center justify-center" style={{ background: "#131a1a", fontSize: 14 }}>🃏</div>}
+                                </div>
+                              ))}
+                            </div>
+                            {/* Name + progress text */}
+                            <div className="min-w-0 flex-1">
+                              <Tooltip text={set.name}>
+                                <p className="truncate text-[13px] font-bold leading-tight" style={{ color: "rgba(255,255,255,0.9)" }}>{set.name}</p>
+                              </Tooltip>
+                              <p className="text-[11px] mt-0.5" style={{ color: "rgba(255,255,255,0.35)" }}>
+                                {set.totalCards > 0
+                                  ? <>{set.collectedCards} <span style={{ color: "rgba(255,255,255,0.2)" }}>/ {set.totalCards} cards</span></>
+                                  : <span style={{ color: "rgba(255,255,255,0.2)" }}>No checklist</span>}
+                              </p>
+                            </div>
+                            {/* Explore button */}
+                            <Link href="/catalogue"
+                              className="shrink-0 rounded-lg px-3 py-1.5 text-[11px] font-bold transition hover:opacity-80"
+                              style={hasProgress
+                                ? { background: "rgba(242,106,33,0.15)", color: "#F26A21", border: "1px solid rgba(242,106,33,0.3)" }
+                                : { background: "rgba(8,123,117,0.15)", color: "#08A39B", border: "1px solid rgba(8,123,117,0.3)" }}>
+                              {hasProgress ? "Continue" : "Explore"}
+                            </Link>
+                          </div>
+                          {/* Progress bar */}
+                          {set.totalCards > 0 && (
+                            <div className="mt-2.5 h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.07)" }}>
+                              <div className="h-full rounded-full transition-all duration-700"
+                                style={{ width: `${pct}%`, background: pct > 0 ? "#F26A21" : "transparent" }} />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {/* Footer */}
+                    <div className="px-4 pt-3 mt-auto" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+                      <Link href="/discover"
+                        className="inline-flex items-center gap-1 text-[12px] font-semibold transition hover:opacity-80"
+                        style={{ color: "rgba(255,255,255,0.35)" }}>
+                        View all {totalSets} sets →
+                      </Link>
                     </div>
                   </div>
                 </div>
@@ -297,7 +444,7 @@ export default function DashboardPage() {
             <div className="mb-5 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <h2 className="text-[16px] font-bold text-zinc-900">Recently Added</h2>
-                <span className="rounded-md px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide"
+                <span className="rounded-md px-2 py-px text-[9px] font-bold uppercase tracking-wide"
                   style={{ background: "rgba(8,123,117,0.12)", color: "#087B75", border: "1px solid rgba(8,123,117,0.2)" }}>New</span>
               </div>
               <div className="flex items-center gap-2">
