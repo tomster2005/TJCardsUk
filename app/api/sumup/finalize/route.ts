@@ -47,6 +47,7 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (pendingErr || !pendingOrder) {
+    console.error("[finalize] no pending_order found for checkoutId:", checkoutId, pendingErr?.message);
     return NextResponse.json(
       { error: "No pending order found for this checkout. It may have already been processed or never created." },
       { status: 404 },
@@ -62,8 +63,11 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (existingOrder) {
+    console.log("[finalize] already processed:", checkoutId);
     return NextResponse.json({ paid: true, alreadyProcessed: true });
   }
+
+  console.log("[finalize] verifying payment with SumUp for checkoutId:", checkoutId);
 
   // ── 4. Verify payment with SumUp server-side ──────────────────────────
   const sumupBase = (process.env.SUMUP_API_BASE?.trim() || "https://api.sumup.com").replace(/\/$/, "");
@@ -90,6 +94,7 @@ export async function POST(request: NextRequest) {
   // ── 6. Verify payment status ──────────────────────────────────────────
   const paymentStatus = String(sumupData?.status ?? "").toUpperCase();
   const isPaid = paymentStatus === "PAID" || paymentStatus === "SUCCESSFUL";
+  console.log("[finalize] SumUp status:", paymentStatus, "amount:", sumupData?.amount, "ref:", sumupData?.checkout_reference);
 
   if (!isPaid) {
     return NextResponse.json({ paid: false });
@@ -163,7 +168,7 @@ export async function POST(request: NextRequest) {
   const shippingCity    = shippingDetails?.city        ? String(shippingDetails.city)        : null;
   const shippingPost    = shippingDetails?.postcode    ? String(shippingDetails.postcode)    : null;
 
-  const { data: savedOrder } = await supabase.from("orders").insert({
+  const { data: savedOrder, error: orderInsertError } = await supabase.from("orders").insert({
     sumup_checkout_id: checkoutId,
     checkout_reference: pendingOrder.checkout_reference,
     status: "paid",
@@ -182,6 +187,11 @@ export async function POST(request: NextRequest) {
   }).select("id").single();
 
   // Stamp order_id on sold copies
+  if (orderInsertError) {
+    console.error("[finalize] order insert failed:", orderInsertError.message, orderInsertError.code);
+  } else {
+    console.log("[finalize] order saved successfully, id:", (savedOrder as any)?.id);
+  }
   if (savedOrder) {
     const soldCopyIds = itemsWithMeta.flatMap((i: any) => i.copyIds ?? []);
     if (soldCopyIds.length > 0) {

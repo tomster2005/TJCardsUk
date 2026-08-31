@@ -155,7 +155,7 @@ export async function POST(request: NextRequest) {
     };
   });
 
-  await supabase.from("pending_orders").insert({
+  const { error: pendingInsertError } = await supabase.from("pending_orders").insert({
     sumup_checkout_id: checkoutId,
     checkout_reference: checkoutReference,
     expected_amount: total,
@@ -166,6 +166,12 @@ export async function POST(request: NextRequest) {
     shipping_cost: shippingCost,
     discount_code: discountCode ?? null,
   });
+
+  if (pendingInsertError) {
+    console.error("[checkout] failed to insert pending_order:", pendingInsertError.message, pendingInsertError.code);
+  } else {
+    console.log("[checkout] pending_order saved:", checkoutReference, "checkoutId:", checkoutId);
+  }
 
   return NextResponse.json({
     checkoutId,
