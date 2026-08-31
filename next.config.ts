@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 // ── Production origins ────────────────────────────────────────────────────
-const PROD_ORIGIN = "https://collectrauk.co.uk";
+const PROD_ORIGIN = "https://collectrauk.com";
 const isDev = process.env.NODE_ENV !== "production";
 
 // ── Content Security Policy ───────────────────────────────────────────────
@@ -43,6 +43,7 @@ const cspDirectives: Record<string, string[]> = {
     // Open Graph / social preview images may be fetched by crawlers via
     // the metadataBase URL; allow the production origin explicitly.
     PROD_ORIGIN,
+    "https://www.collectrauk.com",
   ],
 
   "connect-src": [
@@ -94,6 +95,19 @@ const nextConfig: NextConfig = {
     maxInactiveAge: 10 * 1000,
     pagesBufferLength: 2,
   },
+  async redirects() {
+    return [
+      // Permanently redirect www to non-www.
+      // This runs at the Next.js/Vercel edge before any page renders,
+      // so there is no redirect loop — non-www requests are never touched.
+      {
+        source: "/:path*",
+        has: [{ type: "host", value: "www.collectrauk.com" }],
+        destination: "https://collectrauk.com/:path*",
+        permanent: true,
+      },
+    ];
+  },
   async headers() {
     const csp = buildCsp();
     const securityHeaders = [
@@ -119,7 +133,7 @@ const nextConfig: NextConfig = {
       {
         // HSTS — tell browsers to always use HTTPS for this origin.
         // max-age=63072000 = 2 years (recommended minimum for preload).
-        // includeSubDomains covers any subdomains on collectrauk.co.uk.
+        // includeSubDomains covers www.collectrauk.com.
         // Only set in production; dev runs on http://localhost.
         ...(isDev
           ? { key: "X-HSTS-Skipped-In-Dev", value: "1" }
