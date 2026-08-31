@@ -177,6 +177,14 @@ export default function CartPage() {
         items: items.map(i => ({ cardId: i.cardId, quantity: i.quantity })),
         shippingRateId: selectedRateId,
         discountCode: appliedCode?.code ?? null,
+        shipping: {
+          fullName: shipping.fullName,
+          email: shipping.email,
+          addressLine1: shipping.addressLine1,
+          addressLine2: shipping.addressLine2,
+          city: shipping.city,
+          postcode: shipping.postcode,
+        },
       }),
     });
 

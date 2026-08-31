@@ -33,12 +33,14 @@ export async function POST(request: NextRequest) {
   let items: { cardId: string; quantity: number }[];
   let shippingRateId: string;
   let discountCode: string | null;
+  let shipping: { fullName?: string; email?: string; addressLine1?: string; addressLine2?: string; city?: string; postcode?: string } | null;
 
   try {
     const body = await request.json();
     items = Array.isArray(body.items) ? body.items : [];
     shippingRateId = String(body.shippingRateId ?? "").trim();
     discountCode = body.discountCode ? String(body.discountCode).trim().toUpperCase() : null;
+    shipping = body.shipping ?? null;
   } catch {
     return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
   }
@@ -165,6 +167,12 @@ export async function POST(request: NextRequest) {
     shipping_rate_label: shippingRate.label,
     shipping_cost: shippingCost,
     discount_code: discountCode ?? null,
+    shipping_name: shipping?.fullName ?? null,
+    shipping_email: shipping?.email ?? null,
+    shipping_address_line1: shipping?.addressLine1 ?? null,
+    shipping_address_line2: shipping?.addressLine2 ?? null,
+    shipping_city: shipping?.city ?? null,
+    shipping_postcode: shipping?.postcode ?? null,
   });
 
   if (pendingInsertError) {

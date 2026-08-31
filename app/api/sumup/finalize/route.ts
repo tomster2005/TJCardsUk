@@ -148,13 +148,13 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // ── 9. Build shipping fields ──────────────────────────────────────────
-  const shippingName   = shippingDetails?.fullName     ? String(shippingDetails.fullName)     : null;
-  const shippingEmail  = shippingDetails?.email        ? String(shippingDetails.email)        : null;
-  const shippingAddr1  = shippingDetails?.addressLine1 ? String(shippingDetails.addressLine1) : null;
-  const shippingAddr2  = shippingDetails?.addressLine2 ? String(shippingDetails.addressLine2) : null;
-  const shippingCity   = shippingDetails?.city         ? String(shippingDetails.city)         : null;
-  const shippingPost   = shippingDetails?.postcode     ? String(shippingDetails.postcode)     : null;
+  // ── 9. Build shipping fields — use pending order (saved at checkout time) ──
+  const shippingName   = pendingOrder.shipping_name   ?? (shippingDetails?.fullName     ? String(shippingDetails.fullName)     : null);
+  const shippingEmail  = pendingOrder.shipping_email  ?? (shippingDetails?.email        ? String(shippingDetails.email)        : null);
+  const shippingAddr1  = pendingOrder.shipping_address_line1 ?? (shippingDetails?.addressLine1 ? String(shippingDetails.addressLine1) : null);
+  const shippingAddr2  = pendingOrder.shipping_address_line2 ?? (shippingDetails?.addressLine2 ? String(shippingDetails.addressLine2) : null);
+  const shippingCity   = pendingOrder.shipping_city   ?? (shippingDetails?.city         ? String(shippingDetails.city)         : null);
+  const shippingPost   = pendingOrder.shipping_postcode ?? (shippingDetails?.postcode   ? String(shippingDetails.postcode)     : null);
 
   const subtotal    = items.reduce((sum, i) => sum + Number(i.price ?? 0) * i.quantity, 0);
   const shippingCost = Number(pendingOrder.shipping_cost ?? 0);
