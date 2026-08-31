@@ -32,6 +32,7 @@ type CatalogueCardDetailProps = {
     cardSlug: string;
   }>;
   variants?: Variant[];
+  setSlug?: string;
 };
 
 function getBadgeClass(status: string) {
@@ -52,7 +53,7 @@ function displayValue(value: string | number | undefined | null, fallback = "Not
   return text.length > 0 ? text : fallback;
 }
 
-export function CatalogueCardDetail({ card, relatedCards = [], variants = [] }: CatalogueCardDetailProps) {
+export function CatalogueCardDetail({ card, relatedCards = [], variants = [], setSlug }: CatalogueCardDetailProps) {
   const cart = useCart();
   const [showBack, setShowBack] = useState(false);
   const [justAddedToCart, setJustAddedToCart] = useState(false);
@@ -86,7 +87,11 @@ export function CatalogueCardDetail({ card, relatedCards = [], variants = [] }: 
             <span className="inline-flex items-center gap-2"><SearchIcon className="h-3.5 w-3.5" />Catalogue</span>
           </Link>
           <span className="text-zinc-600">/</span>
-          <span className="rounded-full border border-slate-300/70 bg-white/70 px-3 py-1.5">{setLabel}</span>
+          {setSlug ? (
+            <Link href={`/catalogue/${setSlug}`} className="rounded-full border border-slate-300/70 bg-white/70 px-3 py-1.5 transition hover:bg-slate-50">{setLabel}</Link>
+          ) : (
+            <span className="rounded-full border border-slate-300/70 bg-white/70 px-3 py-1.5">{setLabel}</span>
+          )}
           <span className="text-zinc-600">/</span>
           <span className="rounded-full border border-amber-300/45 bg-amber-100/90 px-3 py-1.5 text-amber-900">{cardLabel}</span>
         </nav>
@@ -97,8 +102,8 @@ export function CatalogueCardDetail({ card, relatedCards = [], variants = [] }: 
             <h1 className="mt-2 text-4xl font-semibold text-zinc-900">{displayValue(card.playerName, "Unknown player")}</h1>
             <p className="mt-2 text-sm text-zinc-600">{displayValue(card.brand, "Unknown brand")} · {setLabel}</p>
           </div>
-          <Link href="/catalogue" className="rounded-full border border-slate-300/70 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-slate-50">
-            <span className="inline-flex items-center gap-2"><ArrowUpIcon className="h-3.5 w-3.5 rotate-[-90deg]" />Back to catalogue</span>
+          <Link href={setSlug ? `/catalogue/${setSlug}` : "/catalogue"} className="rounded-full border border-slate-300/70 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-slate-50">
+            <span className="inline-flex items-center gap-2"><ArrowUpIcon className="h-3.5 w-3.5 rotate-[-90deg]" />{setSlug ? `Back to ${setLabel}` : "Back to catalogue"}</span>
           </Link>
         </div>
 

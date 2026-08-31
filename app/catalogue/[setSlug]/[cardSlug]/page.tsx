@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { Layout } from "@/components/Layout";
 import { CatalogueCardDetail } from "@/components/catalogue/CatalogueCardDetail";
@@ -8,12 +9,67 @@ type Props = {
   params: Promise<{ setSlug: string; cardSlug: string }> | { setSlug: string; cardSlug: string };
 };
 
+async function fetchCard(setSlug: string, cardSlug: string) {
+  const supabase = createServerSupabase();
+  const { data: matches, error } = await supabase
+    .from("cards")
+    .select("*")
+    .eq("set_slug", setSlug)
+    .eq("card_slug", cardSlug)
+    .eq("status", "published");
+
+  if (error || !matches || matches.length === 0) return null;
+  return matches.find((c) => !c.parallel) ?? matches[0];
+}
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { setSlug, cardSlug } = await Promise.resolve(params);
+  const data = await fetchCard(setSlug, cardSlug);
+
+  if (!data) {
+    return { title: "Card not found" };
+  }
+
+  const playerName = data.player ?? "Unknown";
+  const cardNumber = data.card_number ? `#${data.card_number}` : "";
+  const setName = data.set_name ?? "";
+  const parallel = data.parallel ? ` (${data.parallel})` : "";
+
+  const title = [playerName, cardNumber, parallel, setName].filter(Boolean).join(" – ").replace(" – –", " –");
+  const canonicalUrl = `https://collectrauk.com/catalogue/${setSlug}/${cardSlug}`;
+
+  const descParts = [
+    `${playerName}${cardNumber ? ` card number ${data.card_number}` : ""}`,
+    setName ? `from the ${setName} set` : "",
+    data.parallel ? `${data.parallel} parallel` : "",
+    data.brand ? `by ${data.brand}` : "",
+  ].filter(Boolean);
+  const description = `${descParts.join(", ")}. Browse the complete ${setName} checklist and buy trading cards on Collectra.`;
+
+  return {
+    title,
+    description,
+    alternates: { canonical: canonicalUrl },
+    openGraph: {
+      title: `${title} | Collectra`,
+      description,
+      url: canonicalUrl,
+      type: "website",
+      images: data.image_url ? [{ url: data.image_url, alt: title }] : [],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: `${title} | Collectra`,
+      description,
+      images: data.image_url ? [data.image_url] : [],
+    },
+  };
+}
+
 export default async function CatalogueCardPage({ params }: Props) {
   const { setSlug, cardSlug } = await Promise.resolve(params);
   const supabase = createServerSupabase();
 
-  // ── 1. Fetch only the matching card(s) by indexed slug columns ────────
-  // Prefer the base card (no parallel) if multiple rows share the same slug.
   const { data: matches, error } = await supabase
     .from("cards")
     .select("*")
@@ -27,7 +83,6 @@ export default async function CatalogueCardPage({ params }: Props) {
   const data = matches.find((c) => !c.parallel) ?? matches[0];
   if (!data) notFound();
 
-  // ── 2. Fetch all variants (base + parallels) for this card ────────────
   const { data: allVariants } = await supabase
     .from("cards")
     .select("id, player, card_number, parallel, price, stock, image_url, print_run, is_base_variant")
@@ -35,7 +90,6 @@ export default async function CatalogueCardPage({ params }: Props) {
     .eq("set_name", data.set_name)
     .eq("status", "published");
 
-  // If we landed on a parallel, find the base to use as the primary card
   const resolvedData = data.parallel
     ? (allVariants ?? []).find((v) => !v.parallel) ?? data
     : data;
@@ -84,7 +138,6 @@ export default async function CatalogueCardPage({ params }: Props) {
     };
   });
 
-  // ── 3. Fetch related cards from the same set — indexed query ──────────
   const { data: relatedRows } = await supabase
     .from("cards")
     .select("id, player, card_number, price, image_url, set_name, set_slug, card_slug")
@@ -108,9 +161,55 @@ export default async function CatalogueCardPage({ params }: Props) {
     }).cardSlug,
   }));
 
+  // Structured data
+  const canonicalUrl = `https://collectrauk.com/catalogue/${setSlug}/${cardSlug}`;
+  const setUrl = `https://collectrauk.com/catalogue/${setSlug}`;
+  const playerName = card.playerName;
+  const cardNumber = card.cardNumber;
+  const setName = card.setName ?? "";
+
+  const breadcrumbSchema = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      { "@type": "ListItem", position: 1, name: "Catalogue", item: "https://collectrauk.com/catalogue" },
+      { "@type": "ListItem", position: 2, name: setName, item: setUrl },
+      { "@type": "ListItem", position: 3, name: `${playerName} #${cardNumber}`, item: canonicalUrl },
+    ],
+  };
+
+  const productSchema = {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    name: `${playerName} #${cardNumber}${card.parallel ? ` (${card.parallel})` : ""} – ${setName}`,
+    description: `${playerName} trading card number ${cardNumber} from the ${setName} set${card.brand ? ` by ${card.brand}` : ""}.`,
+    ...(card.imageUrl ? { image: card.imageUrl } : {}),
+    offers: {
+      "@type": "Offer",
+      priceCurrency: "GBP",
+      price: Number(card.price ?? 0).toFixed(2),
+      availability:
+        card.stockStatus === "Out of stock"
+          ? "https://schema.org/OutOfStock"
+          : "https://schema.org/InStock",
+      url: canonicalUrl,
+      seller: { "@type": "Organization", name: "Collectra" },
+    },
+  };
+
   return (
-    <Layout>
-      <CatalogueCardDetail card={card} relatedCards={relatedCards} variants={variants} />
-    </Layout>
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbSchema) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(productSchema) }}
+      />
+      <Layout>
+        <CatalogueCardDetail card={card} relatedCards={relatedCards} variants={variants} setSlug={setSlug} />
+      </Layout>
+    </>
   );
 }

@@ -2,15 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 
 // Production origin derived from NEXT_PUBLIC_APP_URL.
 // Falls back to the hardcoded production domain if the env var is absent.
-const PROD_ORIGIN = (process.env.NEXT_PUBLIC_APP_URL ?? "https://collectrauk.co.uk")
+const PROD_ORIGIN = (process.env.NEXT_PUBLIC_APP_URL ?? "https://collectrauk.com")
   .replace(/\/$/, "");
 
 function allowedOrigins(): string[] {
   return [
-    "https://collectrauk.co.uk",
-    "https://www.collectrauk.co.uk",
     "https://collectrauk.com",
     "https://www.collectrauk.com",
+    "https://collectrauk.co.uk",
+    "https://www.collectrauk.co.uk",
     ...(process.env.NODE_ENV !== "production" ? ["http://localhost:3000"] : []),
   ];
 }

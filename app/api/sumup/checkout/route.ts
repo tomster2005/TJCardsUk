@@ -7,7 +7,7 @@ import { limiters, getIp, checkDualLimit } from "@/lib/api/ratelimit";
 // Must stay in sync with the display labels in cart/page.tsx.
 const SHIPPING_RATES: Record<string, { label: string; price: number }> = {
   tracked48:   { label: "Royal Mail Tracked 48", price: 2.85 },
-  secondclass: { label: "Royal Mail 2nd Class",  price: 0.85 },
+  secondclass: { label: "Royal Mail 2nd Class",  price: 0.91 },
 };
 
 export async function POST(request: NextRequest) {

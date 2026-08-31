@@ -41,7 +41,7 @@ const SECOND_CLASS: ShippingOption = {
   id: "secondclass",
   label: "Royal Mail 2nd Class",
   description: "3-5 business days · No insurance",
-  price: 0.85,
+  price: 0.91,
 };
 
 const EMPTY_SHIPPING: ShippingDetails = {

@@ -23,13 +23,16 @@ const playfair = Playfair_Display({
 });
 
 export const metadata: Metadata = {
-  title: "Collectra — The Vault",
-  description: "Premium trading cards — Football, Disney and more. Browse, buy and track your collection all in one place.",
-  metadataBase: new URL("https://collectra.com"),
+  title: {
+    default: "Collectra — Trading Card Catalogue & Collection Tracker",
+    template: "%s | Collectra",
+  },
+  description: "Browse, buy and track trading cards with Collectra. Explore football, Disney and more — complete checklists, individual card pages and collection tools all in one place.",
+  metadataBase: new URL("https://collectrauk.com"),
   openGraph: {
-    title: "Collectra — The Vault",
-    description: "Premium trading cards — Football, Disney and more. Browse, buy and track your collection all in one place.",
-    url: "https://collectra.com",
+    title: "Collectra — Trading Card Catalogue & Collection Tracker",
+    description: "Browse, buy and track trading cards with Collectra. Explore football, Disney and more — complete checklists, individual card pages and collection tools all in one place.",
+    url: "https://collectrauk.com",
     siteName: "Collectra",
     locale: "en_GB",
     type: "website",
@@ -38,14 +41,14 @@ export const metadata: Metadata = {
         url: "/og-image.png",
         width: 1200,
         height: 630,
-        alt: "Collectra — The Vault",
+        alt: "Collectra — Trading Card Catalogue & Collection Tracker",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Collectra — The Vault",
-    description: "Premium trading cards — Football, Disney and more.",
+    title: "Collectra — Trading Card Catalogue & Collection Tracker",
+    description: "Browse, buy and track trading cards with Collectra. Football, Disney and more.",
     images: ["/og-image.png"],
   },
 };

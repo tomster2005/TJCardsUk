@@ -360,7 +360,7 @@ export function CatalogueGrid() {
           </div>
         </div>
 
-        {/* Filter pills */}
+        {/* Filter pills + controls */}
         <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap gap-2">
             {[
@@ -377,18 +377,6 @@ export function CatalogueGrid() {
             ))}
           </div>
           <div className="flex gap-2">
-            <SetsPicker
-              sets={filterOptions.sets}
-              setCategoryMap={filterOptions.setCategoryMap}
-              value={setFilter}
-              onChange={(v) => { setSetFilter(v); setTeamFilter("all"); setParallelFilter("all"); }}
-            />
-            <select value={parallelFilter} onChange={(e) => setParallelFilter(e.target.value)}
-              className="rounded-xl px-3 py-1.5 text-[13px] outline-none"
-              style={{ background: "white", border: "1px solid rgba(0,0,0,0.1)", color: "#374151" }}>
-              <option value="all">All Parallels</option>
-              {filterOptions.parallels.map((p) => <option key={p} value={p}>{p}</option>)}
-            </select>
             <button type="button" onClick={() => setShowFilters((v: boolean) => !v)}
               className="rounded-xl px-3 py-1.5 text-[13px] font-semibold transition"
               style={showFilters ? pillActive : pillInactive}>
@@ -405,14 +393,39 @@ export function CatalogueGrid() {
           </div>
         </div>
 
-        {showFilters && categoryFilter === "Football" && filterOptions.teams.length > 0 && (
-          <div className="mt-3 animate-fade-up">
-            <select value={teamFilter} onChange={(e) => setTeamFilter(e.target.value)}
-              className="rounded-xl px-3 py-2 text-[13px] outline-none"
-              style={{ background: "white", border: "1px solid rgba(0,0,0,0.1)", color: "#374151" }}>
-              <option value="all">All teams</option>
-              {filterOptions.teams.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
+        {/* Expanded filters panel */}
+        {showFilters && (
+          <div className="mt-3 flex flex-wrap gap-2 animate-fade-up p-4 rounded-2xl" style={{ background: "rgba(0,0,0,0.06)" }}>
+            <SetsPicker
+              sets={filterOptions.sets}
+              setCategoryMap={filterOptions.setCategoryMap}
+              value={setFilter}
+              onChange={(v) => { setSetFilter(v); setTeamFilter("all"); setParallelFilter("all"); }}
+            />
+            {filterOptions.parallels.length > 0 && (
+              <select value={parallelFilter} onChange={(e) => setParallelFilter(e.target.value)}
+                className="rounded-xl px-3 py-1.5 text-[13px] outline-none"
+                style={{ background: "white", border: "1px solid rgba(0,0,0,0.1)", color: "#374151" }}>
+                <option value="all">All Parallels</option>
+                {filterOptions.parallels.map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
+            )}
+            {categoryFilter === "Football" && filterOptions.teams.length > 0 && (
+              <select value={teamFilter} onChange={(e) => setTeamFilter(e.target.value)}
+                className="rounded-xl px-3 py-1.5 text-[13px] outline-none"
+                style={{ background: "white", border: "1px solid rgba(0,0,0,0.1)", color: "#374151" }}>
+                <option value="all">All Teams</option>
+                {filterOptions.teams.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+            )}
+            {(setFilter !== "all" || parallelFilter !== "all" || teamFilter !== "all") && (
+              <button type="button"
+                onClick={() => { setSetFilter("all"); setParallelFilter("all"); setTeamFilter("all"); }}
+                className="rounded-xl px-3 py-1.5 text-[13px] font-semibold transition"
+                style={{ background: "rgba(220,38,38,0.1)", color: "#ef4444", border: "1px solid rgba(220,38,38,0.2)" }}>
+                Clear filters
+              </button>
+            )}
           </div>
         )}
       </section>
