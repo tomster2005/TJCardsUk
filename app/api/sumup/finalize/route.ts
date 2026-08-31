@@ -146,6 +146,20 @@ export async function POST(request: NextRequest) {
     } else {
       console.log("[finalize] stock updated:", item.playerName, "new stock:", newStock);
     }
+
+    // Delete the sold card_copies rows (best-effort — no card_copies is fine)
+    const { data: unsolvedCopies } = await supabase
+      .from("card_copies")
+      .select("id")
+      .eq("card_id", item.cardId)
+      .eq("sold", false)
+      .order("created_at", { ascending: true })
+      .limit(item.quantity);
+
+    if (unsolvedCopies && unsolvedCopies.length > 0) {
+      const copyIds = unsolvedCopies.map((c: { id: string }) => c.id);
+      await supabase.from("card_copies").delete().in("id", copyIds);
+    }
   }
 
   // ── 9. Build shipping fields — use pending order (saved at checkout time) ──

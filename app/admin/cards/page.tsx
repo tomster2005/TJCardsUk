@@ -23,6 +23,7 @@ type CardRow = {
   owner?: string | null;
   copyOwners?: string;
   stockBreakdown?: string | null;
+  dominantOwner?: string | null;
   storage_location?: string | null;
 };
 
@@ -41,15 +42,14 @@ export default function CardsPage() {
   const [filterSet, setFilterSet] = useState(() => { try { return JSON.parse(sessionStorage.getItem("admin_cards_filters") ?? "{}").filterSet ?? "all"; } catch { return "all"; } });
   const [filterStatus, setFilterStatus] = useState(() => { try { return JSON.parse(sessionStorage.getItem("admin_cards_filters") ?? "{}").filterStatus ?? "all"; } catch { return "all"; } });
   const [filterParallel, setFilterParallel] = useState(() => { try { return JSON.parse(sessionStorage.getItem("admin_cards_filters") ?? "{}").filterParallel ?? "all"; } catch { return "all"; } });
-  const [filterOwner, setFilterOwner] = useState(() => { try { return JSON.parse(sessionStorage.getItem("admin_cards_filters") ?? "{}").filterOwner ?? "all"; } catch { return "all"; } });
   const [search, setSearch] = useState(() => { try { return JSON.parse(sessionStorage.getItem("admin_cards_filters") ?? "{}").search ?? ""; } catch { return ""; } });
   const [cardNumFrom, setCardNumFrom] = useState(() => { try { return JSON.parse(sessionStorage.getItem("admin_cards_filters") ?? "{}").cardNumFrom ?? ""; } catch { return ""; } });
   const [cardNumTo, setCardNumTo] = useState(() => { try { return JSON.parse(sessionStorage.getItem("admin_cards_filters") ?? "{}").cardNumTo ?? ""; } catch { return ""; } });
   const [sortBy, setSortBy] = useState(() => { try { return JSON.parse(sessionStorage.getItem("admin_cards_filters") ?? "{}").sortBy ?? "newest"; } catch { return "newest"; } });
 
   useEffect(() => {
-    try { sessionStorage.setItem("admin_cards_filters", JSON.stringify({ filterSet, filterStatus, filterParallel, filterOwner, search, cardNumFrom, cardNumTo, sortBy })); } catch {}
-  }, [filterSet, filterStatus, filterParallel, filterOwner, search, cardNumFrom, cardNumTo, sortBy]);
+    try { sessionStorage.setItem("admin_cards_filters", JSON.stringify({ filterSet, filterStatus, filterParallel, search, cardNumFrom, cardNumTo, sortBy })); } catch {}
+  }, [filterSet, filterStatus, filterParallel, search, cardNumFrom, cardNumTo, sortBy]);
 
   useEffect(() => {
     if (!loading && !user) router.push("/login");
@@ -98,7 +98,10 @@ export default function CardsPage() {
         const breakdown = owners
           ? Object.entries(owners).sort().map(([o, n]) => `${n} ${o}`).join(' · ')
           : null;
-        return { ...c, stockBreakdown: breakdown };
+        // Derive the dominant owner from copies for the owner badge
+        const copyOwnersList = owners ? Object.entries(owners).sort((a, b) => b[1] - a[1]) : null;
+        const dominantOwner = copyOwnersList?.[0]?.[0] ?? c.owner ?? null;
+        return { ...c, stockBreakdown: breakdown, dominantOwner };
       });
       setCards(mapped as CardRow[]);
       setIsLoadingCards(false);
@@ -127,7 +130,6 @@ export default function CardsPage() {
     if (filterSet !== "all" && c.set_name !== filterSet) return false;
     if (filterStatus !== "all" && c.status !== filterStatus) return false;
     if (filterParallel !== "all" && (c.parallel || "") !== filterParallel) return false;
-    if (filterOwner !== "all" && (c.owner || "") !== filterOwner) return false;
     if (cardNumFrom !== "" || cardNumTo !== "") {
       const num = parseInt(c.card_number ?? "");
       if (isNaN(num)) return false;
@@ -149,7 +151,6 @@ export default function CardsPage() {
     if (sortBy === "num_desc") return (parseInt(b.card_number ?? "0") || 0) - (parseInt(a.card_number ?? "0") || 0);
     if (sortBy === "price_asc") return (a.price ?? 0) - (b.price ?? 0);
     if (sortBy === "price_desc") return (b.price ?? 0) - (a.price ?? 0);
-    if (sortBy === "owner") return (a.owner ?? "").localeCompare(b.owner ?? "");
     return 0; // newest (default, already ordered by created_at desc from DB)
   });
 
@@ -293,20 +294,12 @@ export default function CardsPage() {
             {parallels.map((p) => <option key={p} value={p!}>{p}</option>)}
           </select>
         )}
-        <select value={filterOwner} onChange={(e) => setFilterOwner(e.target.value)} className="rounded-xl border border-slate-300/60 bg-white px-3 py-2.5 text-sm">
-          <option value="all">All owners</option>
-          <option value="Tom">Tom</option>
-          <option value="Jamie">Jamie</option>
-          <option value="Joint">Joint</option>
-          <option value="">Unset</option>
-        </select>
         <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="rounded-xl border border-slate-300/60 bg-white px-3 py-2.5 text-sm">
           <option value="newest">Newest first</option>
           <option value="num_asc"># Low → High</option>
           <option value="num_desc"># High → Low</option>
           <option value="price_asc">Price Low → High</option>
           <option value="price_desc">Price High → Low</option>
-          <option value="owner">Owner A → Z</option>
         </select>
       </div>
 
@@ -410,8 +403,6 @@ export default function CardsPage() {
                   <th className="pb-3 pr-3">Set</th>
                   <th className="pb-3 pr-3">Price</th>
                   <th className="pb-3 pr-3">Stock</th>
-                  <th className="pb-3 pr-3">Owner</th>
-                  <th className="pb-3 pr-3">Location</th>
                   <th className="pb-3 pr-3">Status</th>
                   <th className="pb-3">Actions</th>
                 </tr>
@@ -438,32 +429,7 @@ export default function CardsPage() {
                     <td className="py-3 pr-3 font-medium text-zinc-900">{c.player || c.title || "Untitled"}</td>
                     <td className="py-3 pr-3 text-zinc-600">{c.set_name || "-"}</td>
                     <td className="py-3 pr-3 text-zinc-800">{typeof c.price === "number" ? formatGBP(c.price) : "-"}</td>
-                    <td className="py-3 pr-3 text-zinc-800">
-                      {c.stockBreakdown ? (
-                        <span className="text-xs text-zinc-600">{c.stockBreakdown}</span>
-                      ) : (
-                        c.stock ?? 0
-                      )}
-                    </td>
-                    <td className="py-3 pr-3">
-                      {c.copyOwners ? (
-                        <span className="text-xs font-semibold text-zinc-700">{c.copyOwners}</span>
-                      ) : (
-                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
-                          c.owner === "Tom" ? "bg-blue-100 text-blue-800" :
-                          c.owner === "Jamie" ? "bg-purple-100 text-purple-800" :
-                          c.owner === "Joint" ? "bg-amber-100 text-amber-800" :
-                          "bg-slate-100 text-slate-500"
-                        }`}>{c.owner || "—"}</span>
-                      )}
-                    </td>
-                    <td className="py-3 pr-3">
-                      {c.storage_location ? (
-                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800">{c.storage_location}</span>
-                      ) : (
-                        <span className="text-xs text-zinc-300">—</span>
-                      )}
-                    </td>
+                    <td className="py-3 pr-3 text-zinc-800">{c.stock ?? 0}</td>
                     <td className="py-3 pr-3">
                       <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
                         c.status === "published" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"

@@ -18,7 +18,6 @@ type EditableCard = {
   team: string;
   image_url: string;
   back_image_url: string;
-  storage_location: string;
 };
 
 type CardCopy = {
@@ -80,7 +79,6 @@ export default function EditCardPage() {
         team: data.team ?? "",
         image_url: data.image_url ?? "",
         back_image_url: data.back_image_url ?? "",
-        storage_location: data.storage_location ?? "",
       });
       setIsLoadingCard(false);
     })();
@@ -172,7 +170,6 @@ export default function EditCardPage() {
       team: activeCard.team.trim() || null,
       image_url: activeCard.image_url.trim() || null,
       back_image_url: activeCard.back_image_url.trim() || null,
-      storage_location: activeCard.storage_location.trim() || null,
       is_base_variant: !activeCard.parallel.trim(),
     };
 
@@ -244,20 +241,13 @@ export default function EditCardPage() {
             </label>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <label className="block">
-              <span className="text-sm text-zinc-700">Stock</span>
-              <input value={card.stock} onChange={(e) => setCard((cur) => (cur ? { ...cur, stock: Number(e.target.value) || 0 } : cur))} type="number" className="mt-2 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
-            </label>
-
-            <label className="block">
-              <span className="text-sm text-zinc-700">Status</span>
-              <select value={card.status} onChange={(e) => setCard((cur) => (cur ? { ...cur, status: e.target.value } : cur))} className="mt-2 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none">
-                <option value="draft">Draft</option>
-                <option value="published">Published</option>
-              </select>
-            </label>
-          </div>
+          <label className="block">
+            <span className="text-sm text-zinc-700">Status</span>
+            <select value={card.status} onChange={(e) => setCard((cur) => (cur ? { ...cur, status: e.target.value } : cur))} className="mt-2 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none">
+              <option value="draft">Draft</option>
+              <option value="published">Published</option>
+            </select>
+          </label>
 
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="block">
@@ -280,23 +270,18 @@ export default function EditCardPage() {
             <input value={card.back_image_url} onChange={(e) => setCard((cur) => (cur ? { ...cur, back_image_url: e.target.value } : cur))} placeholder="https://..." className="mt-2 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none font-mono text-xs" />
           </label>
 
-          <label className="block">
-            <span className="text-sm text-zinc-700">Storage Location</span>
-            <input value={card.storage_location} onChange={(e) => setCard((cur) => (cur ? { ...cur, storage_location: e.target.value } : cur))} placeholder="e.g. 1A, 2B" className="mt-2 w-full rounded-2xl border border-slate-300/70 bg-white px-4 py-3 text-sm text-zinc-900 outline-none" />
-          </label>
-
           <p className="text-xs text-zinc-400">Cards with no parallel show in the catalogue. Cards with a parallel are variants.</p>
 
           {/* Copies / Ownership */}
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-sm font-semibold text-zinc-700 mb-3">Physical Copies ({copies.filter(c => !c.sold).length} unsold · {copies.filter(c => c.sold).length} sold)</p>
+            <p className="text-sm font-semibold text-zinc-700 mb-3">Physical Copies ({copies.length} total)</p>
             <div className="space-y-2">
               {copies.map((copy, i) => (
-                <div key={copy.id} className={`flex items-center gap-3 rounded-xl border px-3 py-2 text-sm ${ copy.sold ? "border-slate-200 bg-white opacity-50" : "border-slate-200 bg-white" }`}>
+                <div key={copy.id} className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm">
                   <span className="text-xs text-zinc-400 w-4">{i + 1}</span>
                   <select
                     value={copy.owner}
-                    disabled={copy.sold || copySaving === copy.id}
+                    disabled={copySaving === copy.id}
                     onChange={(e) => updateCopyOwner(copy.id, e.target.value)}
                     className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-zinc-700 outline-none disabled:opacity-50"
                   >
@@ -306,23 +291,19 @@ export default function EditCardPage() {
                   </select>
                   <input
                     value={copy.storage_location ?? ""}
-                    disabled={copy.sold || copySaving === copy.id}
+                    disabled={copySaving === copy.id}
                     onChange={(e) => updateCopyLocation(copy.id, e.target.value)}
                     placeholder="Bag e.g. 1AAA"
-                    className="w-24 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-zinc-700 outline-none disabled:opacity-50"
+                    className="flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-zinc-700 outline-none disabled:opacity-50"
                   />
-                  {copy.sold ? (
-                    <span className="text-xs text-zinc-400">Sold</span>
-                  ) : (
-                    <button
-                      type="button"
-                      disabled={copySaving === copy.id}
-                      onClick={() => deleteCopy(copy.id)}
-                      className="ml-auto text-xs text-red-500 hover:text-red-700 disabled:opacity-40"
-                    >
-                      Remove
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    disabled={copySaving === copy.id}
+                    onClick={() => deleteCopy(copy.id)}
+                    className="ml-auto text-xs text-red-500 hover:text-red-700 disabled:opacity-40"
+                  >
+                    Remove
+                  </button>
                 </div>
               ))}
             </div>
