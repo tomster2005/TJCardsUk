@@ -6,7 +6,7 @@ import { formatGBP } from "@/lib/currency";
 
 const SUMUP_FEE_RATE = 0.0169;
 
-type OrderItem = { cardId: string; playerName: string; quantity: number; price?: number; owner?: string | null; storage_location?: string | null };
+type OrderItem = { cardId: string; playerName: string; cardNumber?: string | null; setName?: string | null; storageLocation?: string | null; quantity: number; price?: number; owner?: string | null; storage_location?: string | null };
 
 type Order = {
   id: string;
@@ -193,16 +193,19 @@ export default function OrdersPage() {
                     <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-400 mb-3">Items</p>
                     <ul className="space-y-2">
                       {order.items.map((item, i) => (
-                        <li key={i} className="flex items-center justify-between text-sm">
+                        <li key={i} className="flex items-start justify-between text-sm gap-3">
                           <span className="text-zinc-800">
-                            {item.playerName} <span className="text-zinc-400">×{item.quantity}</span>
-                            {item.storage_location && (
+                            <span className="font-semibold">{item.playerName}</span>
+                            {item.cardNumber && <span className="text-zinc-500"> #{item.cardNumber}</span>}
+                            {item.setName && <span className="ml-1 text-zinc-400 text-[11px]">· {item.setName}</span>}
+                            <span className="text-zinc-400"> ×{item.quantity}</span>
+                            {(item.storageLocation || item.storage_location) && (
                               <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800">
-                                📦 {item.storage_location}
+                                📦 {item.storageLocation ?? item.storage_location}
                               </span>
                             )}
                           </span>
-                          {item.price != null && <span className="font-semibold text-zinc-700">{formatGBP(item.price * item.quantity)}</span>}
+                          {item.price != null && <span className="font-semibold text-zinc-700 shrink-0">{formatGBP(item.price * item.quantity)}</span>}
                         </li>
                       ))}
                     </ul>

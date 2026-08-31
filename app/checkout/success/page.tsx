@@ -9,7 +9,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { formatGBP } from "@/lib/currency";
 import getBrowserSupabase from "@/lib/supabase/client";
 
-type CartItem = { cardId: string; playerName: string; quantity: number; price?: number };
+type CartItem = { cardId: string; playerName: string; cardNumber?: string | null; setName?: string | null; quantity: number; price?: number };
 type ShippingDetails = {
   fullName?: string;
   email?: string;
@@ -155,9 +155,10 @@ function CheckoutSuccessContent() {
           <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-[var(--gold-500)]">Items Ordered</p>
           <ul className="mt-4 divide-y divide-[rgba(0,0,0,0.06)]">
             {orderItems.map((item, i) => (
-              <li key={i} className="flex items-center justify-between py-3">
+              <li key={i} className="flex items-start justify-between py-3 gap-3">
                 <div>
-                  <p className="text-sm font-semibold text-zinc-900">{item.playerName}</p>
+                  <p className="text-sm font-semibold text-zinc-900">{item.playerName}{item.cardNumber ? ` #${item.cardNumber}` : ""}</p>
+                  {item.setName && <p className="text-[12px] text-zinc-400">{item.setName}</p>}
                   <p className="text-[12px] text-zinc-400">Qty: {item.quantity}</p>
                 </div>
                 {item.price != null && (

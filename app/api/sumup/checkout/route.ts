@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
 
   const { data: cards, error: cardsError } = await supabase
     .from("cards")
-    .select("id, price, stock, player, status")
+    .select("id, price, stock, player, card_number, set_name, storage_location, status")
     .in("id", cardIds);
 
   if (cardsError || !cards) {
@@ -152,6 +152,9 @@ export async function POST(request: NextRequest) {
     return {
       cardId: i.cardId,
       playerName: card.player,
+      cardNumber: card.card_number ?? null,
+      setName: card.set_name ?? null,
+      storageLocation: card.storage_location ?? null,
       quantity: i.quantity,
       price: Number(card.price),
     };
