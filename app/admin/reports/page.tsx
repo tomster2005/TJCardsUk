@@ -132,6 +132,9 @@ export default function OrdersPage() {
         <div className="mt-4 flex gap-2">
           <button onClick={() => setTab("orders")} className={`rounded-full px-4 py-1.5 text-sm font-semibold transition ${ tab === "orders" ? "bg-amber-500 text-white" : "border border-slate-300 text-zinc-600 hover:bg-slate-50" }`}>Orders</button>
           <button onClick={() => setTab("sales")} className={`rounded-full px-4 py-1.5 text-sm font-semibold transition ${ tab === "sales" ? "bg-amber-500 text-white" : "border border-slate-300 text-zinc-600 hover:bg-slate-50" }`}>Sales & Profit</button>
+          <button onClick={() => setTab("pending")} className={`rounded-full px-4 py-1.5 text-sm font-semibold transition ${ tab === "pending" ? "bg-amber-500 text-white" : "border border-slate-300 text-zinc-600 hover:bg-slate-50" }`}>
+            Pending {pendingOrders.length > 0 && <span className="ml-1 rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] text-white">{pendingOrders.length}</span>}
+          </button>
         </div>
       </div>
 
@@ -232,6 +235,37 @@ export default function OrdersPage() {
       )}
 
       {!loading && tab === "sales" && <SalesTab orders={orders} />}
+
+      {!loading && tab === "pending" && (
+        <div className="space-y-3">
+          {pendingOrders.length === 0 && (
+            <div className="rounded-3xl border border-slate-300/60 bg-white/92 p-8 text-zinc-500">No pending orders.</div>
+          )}
+          {pendingOrders.map((p) => (
+            <div key={p.id} className="rounded-2xl border border-amber-200 bg-amber-50/60 shadow-sm overflow-hidden">
+              <div className="flex flex-wrap items-center justify-between gap-4 px-6 py-4">
+                <div>
+                  <p className="text-sm font-bold text-zinc-900">{p.checkout_reference}</p>
+                  <p className="text-[11px] text-zinc-400">{new Date(p.created_at).toLocaleString("en-GB")}</p>
+                  <p className="mt-1 text-[12px] text-zinc-500">
+                    {Array.isArray(p.items) ? p.items.length : 0} item{Array.isArray(p.items) && p.items.length !== 1 ? "s" : ""}
+                    {" · "}{p.shipping_rate_label ?? "Unknown shipping"}
+                    {" · "}Expected: <span className="font-semibold text-zinc-800">£{Number(p.expected_amount ?? 0).toFixed(2)}</span>
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void finalizePending(p.sumup_checkout_id)}
+                  disabled={finalizing === p.sumup_checkout_id}
+                  className="rounded-lg border border-amber-400 bg-amber-100 px-4 py-2 text-[12px] font-bold text-amber-900 transition hover:bg-amber-200 disabled:opacity-50"
+                >
+                  {finalizing === p.sumup_checkout_id ? "Checking..." : "Finalize"}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
