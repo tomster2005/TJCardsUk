@@ -137,6 +137,7 @@ export async function POST(request: NextRequest) {
 
   const sumupData = await sumupRes.json().catch(() => ({}));
   if (!sumupRes.ok) {
+    console.error("[checkout] SumUp error:", sumupRes.status, JSON.stringify(sumupData));
     return NextResponse.json(
       { error: sumupData?.message || "Unable to create SumUp checkout." },
       { status: sumupRes.status },
